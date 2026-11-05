@@ -3,7 +3,8 @@
 An Android take on the two features that make Reelshot (iOS) feel special:
 
 1. **Low-key mode** — hold the phone in portrait, record true landscape video.
-2. **Widget** — one tap from your home screen straight into the camera, already recording.
+2. **Widgets** — a 3×2 project card and a 1×1 REC button: one tap from your home screen
+   straight into the camera, already recording.
 
 Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (works from any app, and is the closest thing Android has to a lock-screen shortcut).
 
@@ -15,7 +16,8 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Blackout mode (screen looks off, still records) | same |
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
-| Home screen widget (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
+| Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
+| Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
 | Quick Settings tile | `tile/RecordTileService.kt` |
 
 Clips are written to app-private storage (`filesDir/clips`) so nothing lands in the gallery —

@@ -66,6 +66,7 @@ import com.justan.lowkeycam.ui.LowKeyTheme
 import com.justan.lowkeycam.ui.Moss
 import com.justan.lowkeycam.ui.Muted
 import com.justan.lowkeycam.ui.Sand
+import com.justan.lowkeycam.widget.QuickRecordWidgetReceiver
 import com.justan.lowkeycam.widget.RecordWidgetReceiver
 import com.justan.lowkeycam.widget.WidgetUpdater
 import java.io.File
@@ -204,18 +205,9 @@ private fun HomeScreen() {
         }
 
         Spacer(Modifier.height(20.dp))
-        Surface(
-            shape = RoundedCornerShape(100.dp),
-            color = Sand,
-            modifier = Modifier.clickable { pinWidget(context) },
-        ) {
-            Text(
-                text = "Pin widget to home screen",
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
-                color = Forest,
-            )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PinPill("Pin widget · 3×2", Modifier.weight(1f)) { pinWidget(context, compact = false) }
+            PinPill("Pin REC · 1×1", Modifier.weight(1f)) { pinWidget(context, compact = true) }
         }
 
         Spacer(Modifier.height(26.dp))
@@ -329,15 +321,33 @@ private fun NewProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) 
     )
 }
 
-private fun pinWidget(context: android.content.Context) {
+private fun pinWidget(context: android.content.Context, compact: Boolean) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(AppWidgetManager::class.java) ?: return
     if (!manager.isRequestPinAppWidgetSupported) return
-    manager.requestPinAppWidget(
-        ComponentName(context, RecordWidgetReceiver::class.java),
-        null,
-        null,
-    )
+    val receiver = if (compact) QuickRecordWidgetReceiver::class.java else RecordWidgetReceiver::class.java
+    manager.requestPinAppWidget(ComponentName(context, receiver), null, null)
+}
+
+@Composable
+private fun PinPill(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(100.dp),
+        color = Sand,
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = Forest,
+            )
+        }
+    }
 }
 
 private fun shareClip(context: android.content.Context, clip: Clip) {

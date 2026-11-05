@@ -3,5 +3,7 @@
     <string name="app_name">LowKey</string>
     <string name="widget_label">LowKey Record</string>
     <string name="widget_description">Jump straight into your vlog camera and shoot in low-key mode.</string>
+    <string name="widget_quick_label">LowKey REC</string>
+    <string name="widget_quick_description">One big record button: opens low-key mode and starts filming.</string>
     <string name="tile_label">LowKey Record</string>
 </resources>

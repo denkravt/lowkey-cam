@@ -19,6 +19,8 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Projects + private clip storage | `data/Store.kt` |
 | Project screen: clip thumbnails, play, share, delete | `ui/ProjectScreen.kt` |
 | Clip editor: trim with live preview | `ui/ClipEditorScreen.kt` |
+| Play the vlog back in order | `ui/VlogPlayerScreen.kt` |
+| Recap: trim every clip to 2/3/5s | `ui/ProjectScreen.kt` |
 | Reorder clips (⋮ menu) | `data/Store.kt` |
 | Background music, mixed on export | `data/ClipProcessor.kt` |
 | Export whole vlog as one MP4 (lossless stitch) | `data/VlogExporter.kt` |
@@ -54,6 +56,16 @@ and deletes the original.
 
 Every clip row has **play / share / ✕**. ✕ asks for confirmation, then removes the entry from the
 vlog *and* deletes the file from storage, and refreshes the widget.
+
+## What the project screen gives you
+
+- **Record into this project** — straight back to the camera for that vlog
+- **Play vlog** — plays the clips back to back in their arranged order
+- **Export vlog as one video** — stitched, cropped to 16:9, saved to the gallery
+- **Music** — pick a track, set its level (0–100%), remove it
+- **Recap** — one tap trims every clip down to 2 / 3 / 5 seconds
+- **CLIPS** — tap a clip to trim it; ⋮ for Trim / Move up / Move down / Share / Delete
+- **Tap the title** to rename the project
 
 ## Music and clip order
 

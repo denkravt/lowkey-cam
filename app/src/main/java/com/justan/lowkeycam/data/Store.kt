@@ -176,6 +176,13 @@ object Store {
         }.apply()
     }
 
+    fun musicVolumeFor(c: Context, projectId: String): Float =
+        prefs(c).getFloat("music_vol_" + projectId, 0.35f)
+
+    fun setMusicVolume(c: Context, projectId: String, volume: Float) {
+        prefs(c).edit().putFloat("music_vol_" + projectId, volume.coerceIn(0f, 1f)).apply()
+    }
+
     fun musicDir(c: Context): java.io.File =
         java.io.File(c.filesDir, "music").apply { if (!exists()) mkdirs() }
 

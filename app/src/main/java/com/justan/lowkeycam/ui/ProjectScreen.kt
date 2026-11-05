@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +65,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.justan.lowkeycam.camera.CameraActivity
 import com.justan.lowkeycam.data.Clip
+import com.justan.lowkeycam.data.ClipProcessor
 import com.justan.lowkeycam.data.Project
 import com.justan.lowkeycam.data.MediaStorePublisher
 import com.justan.lowkeycam.data.Store
@@ -102,6 +106,36 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var pendingDelete by remember { mutableStateOf<Clip?>(null) }
     var editingClip by remember { mutableStateOf<Clip?>(null) }
     var musicName by remember { mutableStateOf(Store.musicFor(context, project.id)) }
+    var musicVolume by remember { mutableStateOf(Store.musicVolumeFor(context, project.id)) }
+    var playingVlog by remember { mutableStateOf(false) }
+    var displayName by remember { mutableStateOf(project.name) }
+    var renaming by remember { mutableStateOf<String?>(null) }
+    var recapRunning by remember { mutableStateOf(false) }
+    var recapProgress by remember { mutableStateOf(0 to 0) }
+
+    fun runRecap(seconds: Int) {
+        if (recapRunning || clips.isEmpty()) return
+        val limitMs = seconds * 1000L
+        scope.launch {
+            recapRunning = true
+            var done = 0
+            for (clip in clips) {
+                if (clip.durationMs > limitMs + 250L) {
+                    val file = File(Store.clipsDir(context), clip.fileName)
+                    val cut = ClipProcessor.trim(context, file, 0L, limitMs)
+                    if (cut != null) {
+                        file.delete()
+                        Store.updateClip(context, clip.copy(fileName = cut.name, durationMs = limitMs))
+                    }
+                }
+                done++
+                recapProgress = done to clips.size
+            }
+            recapRunning = false
+            WidgetUpdater.update(context)
+            tick++
+        }
+    }
 
     val musicPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -138,11 +172,12 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             }
             Spacer(Modifier.width(14.dp))
             Text(
-                text = project.name,
+                text = displayName,
                 style = MaterialTheme.typography.headlineMedium,
                 color = Ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.clickable { renaming = displayName },
             )
         }
 
@@ -178,13 +213,41 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             }
         }
 
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+        Surface(
+            shape = RoundedCornerShape(100.dp),
+            color = Sand,
+            modifier = Modifier
+                .weight(1f)
+                .clickable(enabled = clips.isNotEmpty()) { playingVlog = true },
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 13.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "\u25B6 Play vlog",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink,
+                )
+                Text(
+                    text = clips.size.toString() + " clips in order",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                )
+            }
+        }
+
         Surface(
             shape = RoundedCornerShape(100.dp),
             color = Card,
             shadowElevation = 3.dp,
             modifier = Modifier
-                .padding(top = 10.dp)
-                .fillMaxWidth()
+                .weight(1.7f)
                 .clickable(enabled = !exporting && clips.isNotEmpty()) {
                     exporting = true
                     exportNote = null
@@ -197,6 +260,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                             projectId = project.id,
                             projectName = project.name,
                             musicFile = musicName?.let { File(Store.musicDir(context), it) },
+                            musicVolume = musicVolume,
                         ) { done, totalClips -> exportProgress = done to totalClips }
                         exporting = false
                         exportedFile = outcome.file
@@ -252,6 +316,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     color = Muted,
                 )
             }
+        }
         }
 
         exportNote?.let { note ->
@@ -326,13 +391,73 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             }
         }
 
+        if (musicName != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Level",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                    modifier = Modifier.width(44.dp),
+                )
+                Slider(
+                    value = musicVolume,
+                    onValueChange = { musicVolume = it },
+                    onValueChangeFinished = { Store.setMusicVolume(context, project.id, musicVolume) },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = (musicVolume * 100).roundToInt().toString() + "%",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
         Text("CLIPS", style = MaterialTheme.typography.labelSmall, color = Moss)
         Text(
-            text = "Tap a clip to trim it",
+            text = if (recapRunning) {
+                "Trimming every clip to " + recapProgress.first + "/" + recapProgress.second + "\u2026"
+            } else {
+                "Tap a clip to trim it"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
         )
+
+        if (!recapRunning && clips.size > 1) {
+            Row(
+                modifier = Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "RECAP",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Moss,
+                )
+                listOf(2, 3, 5).forEach { seconds ->
+                    Surface(
+                        shape = RoundedCornerShape(100.dp),
+                        color = Sand,
+                        modifier = Modifier.clickable { runRecap(seconds) },
+                    ) {
+                        Text(
+                            text = seconds.toString() + "s all",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Forest,
+                        )
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
 
         if (clips.isEmpty()) {
@@ -380,6 +505,49 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 },
             )
         }
+    }
+
+    if (playingVlog) {
+        Dialog(
+            onDismissRequest = { playingVlog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            VlogPlayerScreen(
+                clips = clips,
+                projectName = displayName,
+                onClose = { playingVlog = false },
+            )
+        }
+    }
+
+    renaming?.let { current ->
+        var text by remember(current) { mutableStateOf(current) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename project", style = MaterialTheme.typography.headlineMedium) },
+            text = {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("Name") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val clean = text.trim().ifBlank { current }
+                        Store.renameProject(context, project.id, clean)
+                        WidgetUpdater.update(context)
+                        displayName = clean
+                        renaming = null
+                    }
+                ) { Text("Save", color = Forest, fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renaming = null }) { Text("Cancel", color = Ink) }
+            },
+        )
     }
 
     pendingDelete?.let { clip ->

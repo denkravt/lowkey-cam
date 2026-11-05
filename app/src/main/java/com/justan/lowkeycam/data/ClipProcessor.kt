@@ -40,6 +40,7 @@ object ClipProcessor {
         sources: List<File>,
         music: File,
         output: File,
+        musicVolume: Float = 0.35f,
     ): Boolean {
         if (sources.isEmpty()) return false
         val latch = CountDownLatch(1)
@@ -65,6 +66,12 @@ object ClipProcessor {
 
             val musicItem = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(music)))
                 .setRemoveVideo(true)
+                .setEffects(
+                    Effects(
+                        listOf(VolumeAudioProcessor(musicVolume.coerceIn(0f, 1f))),
+                        emptyList(),
+                    )
+                )
                 .build()
 
             val composition = Composition.Builder(

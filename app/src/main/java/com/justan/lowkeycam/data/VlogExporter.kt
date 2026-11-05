@@ -38,6 +38,7 @@ object VlogExporter {
         projectId: String,
         projectName: String,
         musicFile: File? = null,
+        musicVolume: Float = 0.35f,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): Outcome = withContext(Dispatchers.IO) {
         val all = Store.clips(context, projectId)
@@ -57,7 +58,7 @@ object VlogExporter {
             // Music needs a real mix, so this path always re-encodes (and crops to 16:9 on the way).
             val files = all.map { File(Store.clipsDir(context), it.fileName) }.filter { it.exists() }
             onProgress(0, files.size)
-            return@withContext if (ClipProcessor.concatWithMusic(context, files, musicFile, output)) {
+            return@withContext if (ClipProcessor.concatWithMusic(context, files, musicFile, output, musicVolume)) {
                 onProgress(files.size, files.size)
                 Outcome(output, files.size, 0, 0, null)
             } else {

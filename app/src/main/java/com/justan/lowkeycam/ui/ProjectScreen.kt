@@ -219,36 +219,40 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
         Surface(
-            shape = RoundedCornerShape(100.dp),
+            shape = RoundedCornerShape(22.dp),
             color = Sand,
             modifier = Modifier
                 .weight(1f)
                 .clickable(enabled = clips.isNotEmpty()) { playingVlog = true },
         ) {
             Column(
-                modifier = Modifier.padding(vertical = 13.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "\u25B6 Play vlog",
+                    text = "\u25B6 Play",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = Ink,
+                    maxLines = 1,
                 )
                 Text(
                     text = clips.size.toString() + " clips in order",
                     style = MaterialTheme.typography.bodySmall,
                     color = Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
 
         Surface(
-            shape = RoundedCornerShape(100.dp),
-            color = Card,
-            shadowElevation = 3.dp,
+            shape = RoundedCornerShape(22.dp),
+            color = if (clips.isEmpty()) Sand else Forest,
             modifier = Modifier
-                .weight(1.7f)
+                .weight(1f)
                 .clickable(enabled = !exporting && clips.isNotEmpty()) {
                     exporting = true
                     exportNote = null
@@ -297,7 +301,9 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 },
         ) {
             Column(
-                modifier = Modifier.padding(vertical = 13.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -305,16 +311,20 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                         exporting && exportProgress.second > 0 ->
                             "Exporting " + exportProgress.first + "/" + exportProgress.second + "\u2026"
                         exporting -> "Exporting\u2026"
-                        else -> "Export vlog as one video"
+                        else -> "Export vlog"
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Ink,
+                    color = Cream,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = clips.size.toString() + " clips \u2192 one video \u00b7 goes to your gallery",
+                    text = clips.size.toString() + " clips \u00b7 one video",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Muted,
+                    color = Cream.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

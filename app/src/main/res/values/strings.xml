@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LowKey</string>
+    <string name="widget_label">LowKey Record</string>
+    <string name="widget_description">Jump straight into your vlog camera and shoot in low-key mode.</string>
+    <string name="tile_label">LowKey Record</string>
+</resources>

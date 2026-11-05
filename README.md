@@ -16,6 +16,7 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Blackout mode (screen looks off, still records) | same |
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
+| Project screen: clip thumbnails, play, share | `ui/ProjectScreen.kt` |
 | Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
 | Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
 | Quick Settings tile | `tile/RecordTileService.kt` |

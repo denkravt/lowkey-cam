@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -65,6 +66,7 @@ import com.justan.lowkeycam.ui.Ink
 import com.justan.lowkeycam.ui.LowKeyTheme
 import com.justan.lowkeycam.ui.Moss
 import com.justan.lowkeycam.ui.Muted
+import com.justan.lowkeycam.ui.ProjectScreen
 import com.justan.lowkeycam.ui.Sand
 import com.justan.lowkeycam.widget.QuickRecordWidgetReceiver
 import com.justan.lowkeycam.widget.RecordWidgetReceiver
@@ -77,13 +79,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         Store.ensureProject(this)
         setContent {
-            LowKeyTheme { HomeScreen() }
+            LowKeyTheme {
+                var openProjectId by remember { mutableStateOf<String?>(null) }
+                val open = openProjectId?.let { id -> Store.projects(this).firstOrNull { it.id == id } }
+                if (open != null) {
+                    BackHandler { openProjectId = null }
+                    ProjectScreen(
+                        project = open,
+                        onBack = { openProjectId = null },
+                    )
+                } else {
+                    HomeScreen(onOpenProject = { openProjectId = it.id })
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun HomeScreen() {
+private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     val owner = LocalLifecycleOwner.current
@@ -201,6 +215,7 @@ private fun HomeScreen() {
                 Store.setCurrent(context, p.id)
                 WidgetUpdater.update(context)
                 tick++
+                onOpenProject(p)
             }
         }
 
@@ -268,7 +283,9 @@ private fun ProjectRow(
             }
             if (selected) {
                 Box(Modifier.size(10.dp).background(Forest, CircleShape)) {}
+                Spacer(Modifier.width(8.dp))
             }
+            Text("\u203A", fontSize = 20.sp, color = Muted)
         }
     }
 }

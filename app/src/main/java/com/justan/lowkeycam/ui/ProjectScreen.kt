@@ -34,6 +34,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -407,6 +408,11 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     onValueChange = { musicVolume = it },
                     onValueChangeFinished = { Store.setMusicVolume(context, project.id, musicVolume) },
                     valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Forest,
+                        activeTrackColor = Forest,
+                        inactiveTrackColor = Sand,
+                    ),
                     modifier = Modifier.weight(1f),
                 )
                 Text(

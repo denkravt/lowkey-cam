@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -174,6 +175,11 @@ fun ClipEditorScreen(clip: Clip, onClose: () -> Unit) {
                 endMs = range.endInclusive.coerceIn(startMs + 200f, durationMs.toFloat())
             },
             valueRange = 0f..durationMs.toFloat().coerceAtLeast(1f),
+            colors = SliderDefaults.colors(
+                thumbColor = Forest,
+                activeTrackColor = Forest,
+                inactiveTrackColor = Sand,
+            ),
             modifier = Modifier.padding(top = 4.dp),
         )
 

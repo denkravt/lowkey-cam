@@ -186,6 +186,19 @@ object VlogExporter {
 
             muxer?.stop()
             muxer?.release()
+
+            if (skippedIncompatible > 0) {
+                // Clips came from different encoder settings. Re-encode everything in one pass so
+                // nothing is left out, cropping to the same 16:9 band along the way.
+                output.delete()
+                val files = all.map { File(Store.clipsDir(context), it.fileName) }.filter { it.exists() }
+                return@withContext if (ClipProcessor.concatTo16x9(context, files, output)) {
+                    Outcome(output, files.size, 0, 0, null)
+                } else {
+                    Outcome(null, used, skippedOrientation, skippedIncompatible, "Export failed")
+                }
+            }
+
             return@withContext Outcome(output, used, skippedOrientation, skippedIncompatible, null)
         } catch (t: Throwable) {
             runCatching { muxer?.release() }

@@ -56,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.justan.lowkeycam.data.Clip
+import com.justan.lowkeycam.data.ClipProcessor
 import com.justan.lowkeycam.data.Store
 import com.justan.lowkeycam.data.formatDuration
 import com.justan.lowkeycam.ui.LowKeyTheme
@@ -77,6 +79,7 @@ import com.justan.lowkeycam.widget.WidgetUpdater
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -107,6 +110,15 @@ class CameraActivity : ComponentActivity() {
     }
 }
 
+private fun buildClip(projectId: String, fileName: String, durationMs: Long, lowKey: Boolean) = Clip(
+    id = UUID.randomUUID().toString(),
+    projectId = projectId,
+    fileName = fileName,
+    durationMs = durationMs,
+    lowKey = lowKey,
+    createdAt = System.currentTimeMillis(),
+)
+
 private fun hasPermission(context: Context, permission: String): Boolean =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -129,6 +141,7 @@ private suspend fun awaitCameraProvider(context: Context): ProcessCameraProvider
 private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: () -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -186,26 +199,40 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
             when (event) {
                 is VideoRecordEvent.Finalize -> {
                     val durMs = event.recordingStats.recordedDurationNanos / 1_000_000L
+                    recording = null
+                    paused = false
                     if (!event.hasError() && file.exists() && file.length() > 0L) {
-                        Store.addClip(
-                            context,
-                            Clip(
-                                id = UUID.randomUUID().toString(),
-                                projectId = project.id,
-                                fileName = name,
-                                durationMs = durMs,
-                                lowKey = lowAtStart,
-                                createdAt = System.currentTimeMillis(),
-                            ),
-                        )
-                        WidgetUpdater.update(context)
-                        note = "Saved · " + formatDuration(durMs) + " · " + if (lowAtStart) "landscape" else "portrait"
+                        if (lowAtStart) {
+                            // Keep the preview upright while shooting, then trim to the framed 16:9 band.
+                            note = "Cropping to 16:9\u2026"
+                            scope.launch {
+                                val cropped = ClipProcessor.cropTo16x9(context, file)
+                                val savedName = if (cropped != null) {
+                                    file.delete()
+                                    cropped.name
+                                } else {
+                                    name
+                                }
+                                Store.addClip(
+                                    context,
+                                    buildClip(project.id, savedName, durMs, lowAtStart),
+                                )
+                                WidgetUpdater.update(context)
+                                note = (if (cropped != null) "Saved · landscape · " else "Cropping failed · kept portrait · ") +
+                                    formatDuration(durMs)
+                            }
+                        } else {
+                            Store.addClip(
+                                context,
+                                buildClip(project.id, name, durMs, lowAtStart),
+                            )
+                            WidgetUpdater.update(context)
+                            note = "Saved · portrait · " + formatDuration(durMs)
+                        }
                     } else {
                         error = "Recording failed (code " + event.error + ")"
                         file.delete()
                     }
-                    recording = null
-                    paused = false
                 }
                 else -> Unit
             }
@@ -250,9 +277,9 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                 )
                 .build()
             val vc = VideoCapture.withOutput(recorder)
-            vc.targetRotation = if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0
+            vc.targetRotation = Surface.ROTATION_0
             val preview = Preview.Builder()
-                .setTargetRotation(if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0)
+                .setTargetRotation(Surface.ROTATION_0)
                 .build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
@@ -269,9 +296,9 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     }
 
     LaunchedEffect(lowKey, bound) {
-        val rotation = if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0
-        videoCapture?.targetRotation = rotation
-        previewUseCase?.targetRotation = rotation
+        // Both stay portrait: the low-key crop happens after the take, so the preview is upright.
+        videoCapture?.targetRotation = Surface.ROTATION_0
+        previewUseCase?.targetRotation = Surface.ROTATION_0
     }
 
     LaunchedEffect(torch, bound) {
@@ -325,7 +352,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                 Spacer(Modifier.weight(1f))
                 Surface(shape = RoundedCornerShape(100.dp), color = Color(0x33FFFFFF)) {
                     Text(
-                        text = if (lowKey) "LOW-KEY · LANDSCAPE" else "NORMAL · PORTRAIT",
+                        text = if (lowKey) "LOW-KEY · 16:9" else "NORMAL · PORTRAIT",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         color = Color.White,
                         fontSize = 10.sp,
@@ -344,27 +371,35 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
 
             // ---- preview ----
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+
                 if (lowKey) {
+                    // Everything stays upright; the bright band is exactly what gets kept.
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val screenW = maxWidth
-                        val frameH = screenW * (9f / 16f)
+                        val bandHeight = maxWidth * (9f / 16f)
+                        val shade = (maxHeight - bandHeight) / 2f
                         Box(
-                            modifier = Modifier
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .height(shade)
+                                .background(Color(0xB3000000))
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(shade)
+                                .background(Color(0xB3000000))
+                        )
+                        Box(
+                            Modifier
                                 .align(Alignment.Center)
-                                .width(screenW)
-                                .height(frameH)
-                                .clip(RoundedCornerShape(26.dp))
-                                .background(Color(0xFF111110))
-                                .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(26.dp)),
-                        ) {
-                            AndroidView(
-                                factory = { previewView },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
+                                .fillMaxWidth()
+                                .height(bandHeight)
+                                .border(1.dp, Color(0x99FFFFFF))
+                        )
                     }
-                } else {
-                    AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
                 }
 
                 if (stealth) {
@@ -406,7 +441,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
 
                 if (lowKey && !isRecording && !stealth) {
                     Text(
-                        text = "hold portrait · shoot landscape",
+                        text = "upright preview · keeps the 16:9 band",
                         color = Color(0xCCFFFFFF),
                         fontSize = 12.sp,
                         modifier = Modifier

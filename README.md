@@ -12,7 +12,8 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 
 | Feature | Where |
 |---|---|
-| Low-key recording (portrait hold → 1920×1080 landscape file) | `camera/CameraActivity.kt` |
+| Low-key recording (upright preview, 16:9 band → landscape file) | `camera/CameraActivity.kt` |
+| 16:9 crop / concat re-encode | `data/ClipProcessor.kt` |
 | Blackout mode (screen looks off, still records) | same |
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
@@ -27,19 +28,17 @@ matching Reelshot's "keep it off your camera roll" positioning. Share exports vi
 
 ## How low-key mode actually works
 
-CameraX exposes a per-use-case `targetRotation`. The activity is locked to portrait, so:
+There is no way to capture a wide, upright frame while the phone is upright — a landscape video
+shot from a portrait-held sensor always contains the world tipped 90°. Every app that offers this
+mode does the same thing: **shoot portrait, keep only the 16:9 band**.
 
-- `VideoCapture.targetRotation = Surface.ROTATION_90` → the recorder captures the **native
-  landscape stream** (16:9 of the sensor) and tags the MP4 with a 0° rotation, so it plays wide.
-- `Preview.targetRotation` is set to the **same** value. Both use cases therefore share one
-  stream configuration, so the preview is the recorded frame — not a portrait crop blown up.
+So low-key mode records portrait (both `Preview` and `VideoCapture` at `ROTATION_0`, so the preview
+is upright and honest) and shows a bright 16:9 band with the rest dimmed. On stop, the take is
+trimmed to that band with `media3-transformer` (`Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP`) into
+a 1280×720 landscape MP4, and the portrait original is deleted. Cost: a second or two of processing
+per take.
 
-The preview is laid out as a 16:9 frame in the middle of the portrait screen. Because the phone is
-held upright, the scene inside it appears sideways — that is inherent to filming landscape while
-holding portrait, and it is what the file contains.
-
-Because the file carries rotation metadata instead of baked-in pixels, no re-encode is needed and
-quality is full-rate.
+The band is the recording — what the bright area shows is exactly what lands in the file.
 
 ## Deleting clips
 

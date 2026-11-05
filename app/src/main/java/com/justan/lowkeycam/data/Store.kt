@@ -119,6 +119,10 @@ object Store {
         saveClips(c, clips(c) + clip)
     }
 
+    fun updateClip(c: Context, clip: Clip) {
+        saveClips(c, clips(c).map { if (it.id == clip.id) clip else it })
+    }
+
     fun removeClip(c: Context, clipId: String) {
         saveClips(c, clips(c).filterNot { it.id == clipId })
     }

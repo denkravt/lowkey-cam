@@ -49,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -93,6 +95,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var exportedFile by remember { mutableStateOf<File?>(null) }
     var exportedUri by remember { mutableStateOf<Uri?>(null) }
     var pendingDelete by remember { mutableStateOf<Clip?>(null) }
+    var editingClip by remember { mutableStateOf<Clip?>(null) }
 
     Column(
         modifier = Modifier
@@ -261,6 +264,11 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
 
         Spacer(Modifier.height(24.dp))
         Text("CLIPS", style = MaterialTheme.typography.labelSmall, color = Moss)
+        Text(
+            text = "Tap a clip to trim it",
+            style = MaterialTheme.typography.bodySmall,
+            color = Muted,
+        )
         Spacer(Modifier.height(8.dp))
 
         if (clips.isEmpty()) {
@@ -274,12 +282,31 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
         clips.asReversed().forEach { clip ->
             ClipRow(
                 clip = clip,
+                onEdit = { editingClip = clip },
                 onPlay = { playClip(context, clip) },
                 onDelete = { pendingDelete = clip },
             )
         }
 
         Spacer(Modifier.height(30.dp))
+    }
+
+    editingClip?.let { clip ->
+        Dialog(
+            onDismissRequest = { editingClip = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            ClipEditorScreen(
+                clip = clip,
+                onClose = {
+                    editingClip = null
+                    exportNote = null
+                    exportedFile = null
+                    exportedUri = null
+                    tick++
+                },
+            )
+        }
     }
 
     pendingDelete?.let { clip ->
@@ -318,7 +345,12 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
 }
 
 @Composable
-private fun ClipRow(clip: Clip, onPlay: () -> Unit, onDelete: () -> Unit) {
+private fun ClipRow(
+    clip: Clip,
+    onEdit: () -> Unit,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val context = LocalContext.current
     val file = remember(clip.fileName) { File(Store.clipsDir(context), clip.fileName) }
 
@@ -329,7 +361,7 @@ private fun ClipRow(clip: Clip, onPlay: () -> Unit, onDelete: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(onClick = onPlay),
+            .clickable(onClick = onEdit),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),

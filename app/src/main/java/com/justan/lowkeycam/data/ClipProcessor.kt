@@ -86,6 +86,59 @@ object ClipProcessor {
         return failure.get() == null && output.exists() && output.length() > 0L
     }
 
+    /** Cuts [source] down to [startMs]..[endMs], keeping everything else (crop, rotation) as is. */
+    @OptIn(markerClass = [UnstableApi::class])
+    suspend fun trim(context: Context, source: File, startMs: Long, endMs: Long): File? {
+        val output = File(source.parentFile, "trim_" + System.currentTimeMillis() + ".mp4")
+        val latch = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>(null)
+
+        withContext(Dispatchers.Main) {
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.fromFile(source))
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(startMs.coerceAtLeast(0L))
+                        .setEndPositionMs(endMs)
+                        .build()
+                )
+                .build()
+            val item = EditedMediaItem.Builder(mediaItem).build()
+
+            val composition = Composition.Builder(EditedMediaItemSequence(listOf(item))).build()
+            val transformer = Transformer.Builder(context)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        latch.countDown()
+                    }
+
+                    override fun onError(
+                        composition: Composition,
+                        exportResult: ExportResult,
+                        exportException: ExportException,
+                    ) {
+                        failure.set(exportException)
+                        latch.countDown()
+                    }
+                })
+                .build()
+
+            runCatching { transformer.start(composition, output.absolutePath) }
+                .onFailure {
+                    failure.set(it)
+                    latch.countDown()
+                }
+        }
+
+        withContext(Dispatchers.IO) { latch.await(5, TimeUnit.MINUTES) }
+        return if (failure.get() == null && output.exists() && output.length() > 0L) {
+            output
+        } else {
+            output.delete()
+            null
+        }
+    }
+
     @OptIn(markerClass = [UnstableApi::class])
     suspend fun cropTo16x9(context: Context, source: File): File? {
         val output = File(source.parentFile, "lk_" + System.currentTimeMillis() + ".mp4")

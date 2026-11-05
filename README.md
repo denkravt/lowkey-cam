@@ -18,6 +18,7 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
 | Project screen: clip thumbnails, play, share, delete | `ui/ProjectScreen.kt` |
+| Clip editor: trim with live preview | `ui/ClipEditorScreen.kt` |
 | Export whole vlog as one MP4 (lossless stitch) | `data/VlogExporter.kt` |
 | Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
 | Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
@@ -39,6 +40,13 @@ a 1280×720 landscape MP4, and the portrait original is deleted. Cost: a second 
 per take.
 
 The band is the recording — what the bright area shows is exactly what lands in the file.
+
+## Editing a clip
+
+Tap any clip in a project to open the trim editor: `ExoPlayer` preview, a two-handle range slider,
+**Preview** (plays only the kept part, looping inside the range) and **Save trim**. Saving re-cuts the
+clip through `media3-transformer` with a clipping configuration, swaps the file, updates the duration
+and deletes the original.
 
 ## Deleting clips
 

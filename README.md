@@ -13,6 +13,8 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Feature | Where |
 |---|---|
 | Low-key recording (upright preview, 16:9 band → landscape file) | `camera/CameraActivity.kt` |
+| Standard mode follows device rotation (portrait ⇄ landscape) | `camera/CameraActivity.kt` |
+| Lens switching (ultra-wide / wide / tele) | `camera/CameraActivity.kt` |
 | 16:9 crop / concat re-encode | `data/ClipProcessor.kt` |
 | Blackout mode (screen looks off, still records) | same |
 | Record / pause / resume, timer, flip camera, torch | same |
@@ -30,6 +32,19 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 
 Clips are written to app-private storage (`filesDir/clips`) so nothing lands in the gallery —
 matching Reelshot's "keep it off your camera roll" positioning. Share exports via FileProvider.
+
+## Orientation and lenses
+
+**Standard mode** follows the device: the camera activity runs `fullSensor`, so turning the phone
+landscape rotates the UI and both `Preview` and `VideoCapture` are re-pointed at the new display
+rotation (`DisplayManager.DisplayListener`). Portrait stays portrait, landscape stays landscape.
+
+**Low-key mode** deliberately locks itself to portrait (it crops a 16:9 band out of a portrait take),
+and switching the toggle flips the activity between `PORTRAIT` and `FULL_SENSOR`.
+
+**Lenses** — every camera the device exposes for the current facing becomes a chip (`0.5×`, `1×`,
+`3×`…), labelled from `CameraInfo.intrinsicZoomRatio` and rebound via that camera's own
+`CameraSelector`. Phones with a single lens simply show no chip row.
 
 ## How low-key mode actually works
 

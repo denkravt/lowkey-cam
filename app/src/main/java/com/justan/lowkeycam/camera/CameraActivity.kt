@@ -3,9 +3,14 @@ package com.justan.lowkeycam.camera
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
 import android.view.Surface
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -14,6 +19,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
+import androidx.camera.core.CameraInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -61,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -79,6 +86,7 @@ import com.justan.lowkeycam.widget.WidgetUpdater
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -102,6 +110,9 @@ class CameraActivity : ComponentActivity() {
         enableEdgeToEdge()
         val lowKey = intent.getBooleanExtra(EXTRA_LOWKEY, Store.lowKeyDefault(this))
         val autoStart = intent.getBooleanExtra(EXTRA_AUTOSTART, false)
+        // Low-key frames a 16:9 band out of a portrait take, so it stays upright.
+        // Standard mode follows the device instead.
+        if (lowKey) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         setContent {
             LowKeyTheme {
                 CameraScreen(lowKey, autoStart) { finish() }
@@ -121,6 +132,13 @@ private fun buildClip(projectId: String, fileName: String, durationMs: Long, low
 
 private fun hasPermission(context: Context, permission: String): Boolean =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+/** Display rotation of the phone itself — the preview view may not be attached yet at bind time. */
+private fun currentRotation(context: Context): Int {
+    val manager = context.getSystemService(DisplayManager::class.java)
+    val display = manager?.getDisplay(Display.DEFAULT_DISPLAY) ?: return Surface.ROTATION_0
+    return display.rotation
+}
 
 private suspend fun awaitCameraProvider(context: Context): ProcessCameraProvider =
     suspendCancellableCoroutine { cont ->
@@ -168,6 +186,8 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
 
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
+    var lensOptions by remember { mutableStateOf<List<Pair<Float, CameraSelector>>>(emptyList()) }
+    var lensIndex by remember { mutableStateOf(0) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var bound by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<Recording?>(null) }
@@ -263,11 +283,44 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
         }
     }
 
-    LaunchedEffect(cameraGranted, lensFacing) {
+    // Standard mode follows the device: every display rotation re-points preview + recorder.
+    DisposableEffect(Unit) {
+        val displayManager = context.getSystemService(DisplayManager::class.java)
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) {
+                val rotation = currentRotation(context)
+                if (lowKey) return
+                previewUseCase?.targetRotation = rotation
+                videoCapture?.targetRotation = rotation
+            }
+        }
+        displayManager?.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+        onDispose { displayManager?.unregisterDisplayListener(listener) }
+    }
+
+    LaunchedEffect(cameraGranted, lensFacing, lensIndex, lensOptions.size) {
         if (!cameraGranted) return@LaunchedEffect
         bound = false
         runCatching {
             val provider = awaitCameraProvider(context)
+
+            // Every physical lens the device exposes (ultra-wide / wide / tele) becomes a chip.
+            runCatching {
+                val options = provider.availableCameraInfos
+                    .filter { runCatching { it.lensFacing }.getOrNull() == lensFacing }
+                    .mapNotNull { info ->
+                        val raw = info.intrinsicZoomRatio
+                        val ratio = if (raw <= 0f || raw == CameraInfo.INTRINSIC_ZOOM_RATIO_UNKNOWN) 1f else raw
+                        runCatching { ratio to info.cameraSelector }.getOrNull()
+                    }
+                    .distinctBy { (ratio, _) -> (ratio * 100).roundToInt() }
+                    .sortedBy { (ratio, _) -> ratio }
+                if (options.isNotEmpty() && options.size != lensOptions.size) {
+                    lensOptions = options
+                }
+            }
             val recorder = Recorder.Builder()
                 .setQualitySelector(
                     QualitySelector.fromOrderedList(
@@ -276,13 +329,15 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                     )
                 )
                 .build()
+            val rotation = if (lowKey) Surface.ROTATION_0 else currentRotation(context)
             val vc = VideoCapture.withOutput(recorder)
-            vc.targetRotation = Surface.ROTATION_0
+            vc.targetRotation = rotation
             val preview = Preview.Builder()
-                .setTargetRotation(Surface.ROTATION_0)
+                .setTargetRotation(rotation)
                 .build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-            val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+            val selector = lensOptions.getOrNull(lensIndex)?.second
+                ?: CameraSelector.Builder().requireLensFacing(lensFacing).build()
             provider.unbindAll()
             val cam = provider.bindToLifecycle(owner, selector, preview, vc)
             previewUseCase = preview
@@ -340,9 +395,11 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
 
     val isRecording = recording != null
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val landscape = maxWidth > maxHeight
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)) {
 
+            if (!landscape) {
             // ---- top bar ----
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -352,7 +409,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                 Spacer(Modifier.weight(1f))
                 Surface(shape = RoundedCornerShape(100.dp), color = Color(0x33FFFFFF)) {
                     Text(
-                        text = if (lowKey) "LOW-KEY · 16:9" else "NORMAL · PORTRAIT",
+                        text = if (lowKey) "LOW-KEY · 16:9" else "STANDARD · " + (if (landscape) "LANDSCAPE" else "PORTRAIT"),
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         color = Color.White,
                         fontSize = 10.sp,
@@ -367,6 +424,8 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
+            }
+
             }
 
             // ---- preview ----
@@ -514,6 +573,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                 }
             }
 
+            if (!landscape) {
             // ---- controls ----
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 16.dp)
@@ -527,6 +587,8 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         if (!isRecording) {
                             lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK)
                                 CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+                            lensOptions = emptyList()
+                            lensIndex = 0
                             torch = false
                         }
                     }
@@ -576,6 +638,20 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
 
                 Spacer(Modifier.height(16.dp))
 
+                if (lensOptions.size > 1) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        lensOptions.forEachIndexed { index, lens ->
+                            Chip(zoomLabel(lens.first), index == lensIndex) {
+                                if (!isRecording) lensIndex = index
+                            }
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -585,6 +661,143 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         if (!isRecording) {
                             lowKey = !lowKey
                             Store.setLowKeyDefault(context, lowKey)
+                            (context as? ComponentActivity)?.requestedOrientation =
+                                if (lowKey) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                        }
+                    }
+                    Chip("Blackout", stealth) { stealth = !stealth }
+                    Chip("Torch", torch) {
+                        if (!isRecording && lensFacing == CameraSelector.LENS_FACING_BACK) torch = !torch
+                    }
+                }
+            }
+            }
+        }
+
+        // ---- landscape overlay: preview is full-bleed, controls float on top ----
+        if (landscape) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color(0x00000000))))
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .background(Brush.verticalGradient(listOf(Color(0x00000000), Color(0xCC000000))))
+            )
+            Column(
+                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircleButton("\u2715", onClose)
+                    Spacer(Modifier.weight(1f))
+                    Surface(shape = RoundedCornerShape(100.dp), color = Color(0x33FFFFFF)) {
+                        Text(
+                            text = if (lowKey) "LOW-KEY · 16:9" else "STANDARD · LANDSCAPE",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.2.sp,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = formatDuration(elapsedMs),
+                        color = if (isRecording) Color(0xFFFF6B5E) else Color(0x99FFFFFF),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircleButton(if (lensFacing == CameraSelector.LENS_FACING_BACK) "\u21BB" else "\u21BA") {
+                        if (!isRecording) {
+                            lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK)
+                                CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+                            lensOptions = emptyList()
+                            lensIndex = 0
+                            torch = false
+                        }
+                    }
+
+                    Spacer(Modifier.width(28.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .size(76.dp)
+                            .clip(CircleShape)
+                            .border(4.dp, Color.White, CircleShape)
+                            .clickable {
+                                if (isRecording) {
+                                    runCatching { recording?.stop() }
+                                    paused = false
+                                } else {
+                                    startRecording()
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isRecording) {
+                            Box(
+                                Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(Color(0xFFFF5A4D))
+                            )
+                        } else {
+                            Box(
+                                Modifier
+                                    .size(58.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF5A4D))
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.width(28.dp))
+
+                    if (isRecording) {
+                        CircleButton(if (paused) "\u25B6" else "\u2161") { togglePause() }
+                    } else {
+                        Spacer(Modifier.size(44.dp))
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (lensOptions.size > 1) {
+                        lensOptions.forEachIndexed { index, lens ->
+                            Chip(zoomLabel(lens.first), index == lensIndex) {
+                                if (!isRecording) lensIndex = index
+                            }
+                        }
+                    }
+                    Chip("Low-key", lowKey) {
+                        if (!isRecording) {
+                            lowKey = !lowKey
+                            Store.setLowKeyDefault(context, lowKey)
+                            (context as? ComponentActivity)?.requestedOrientation =
+                                if (lowKey) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                         }
                     }
                     Chip("Blackout", stealth) { stealth = !stealth }
@@ -597,13 +810,19 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     }
 }
 
+private fun zoomLabel(ratio: Float): String {
+    val rounded = (ratio * 10f).roundToInt() / 10f
+    return if (rounded % 1f == 0f) rounded.toInt().toString() + "\u00d7" else rounded.toString() + "\u00d7"
+}
+
 @Composable
 private fun CircleButton(label: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
-            .background(Color(0x33FFFFFF))
+            .background(Color(0x59000000))
+            .border(1.dp, Color(0x40FFFFFF), CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

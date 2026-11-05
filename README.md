@@ -16,7 +16,7 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Blackout mode (screen looks off, still records) | same |
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
-| Project screen: clip thumbnails, play, share | `ui/ProjectScreen.kt` |
+| Project screen: clip thumbnails, play, share, delete | `ui/ProjectScreen.kt` |
 | Export whole vlog as one MP4 (lossless stitch) | `data/VlogExporter.kt` |
 | Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
 | Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
@@ -40,6 +40,11 @@ holding portrait, and it is what the file contains.
 
 Because the file carries rotation metadata instead of baked-in pixels, no re-encode is needed and
 quality is full-rate.
+
+## Deleting clips
+
+Every clip row has **play / share / ✕**. ✕ asks for confirmation, then removes the entry from the
+vlog *and* deletes the file from storage, and refreshes the widget.
 
 ## Exporting a whole vlog
 

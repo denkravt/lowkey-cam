@@ -23,9 +23,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,6 +58,7 @@ import com.justan.lowkeycam.data.Project
 import com.justan.lowkeycam.data.Store
 import com.justan.lowkeycam.data.VlogExporter
 import com.justan.lowkeycam.data.formatDuration
+import com.justan.lowkeycam.widget.WidgetUpdater
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -86,6 +89,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var exportProgress by remember { mutableStateOf(0 to 0) }
     var exportNote by remember { mutableStateOf<String?>(null) }
     var exportedFile by remember { mutableStateOf<File?>(null) }
+    var pendingDelete by remember { mutableStateOf<Clip?>(null) }
 
     Column(
         modifier = Modifier
@@ -245,15 +249,53 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
         }
 
         clips.asReversed().forEach { clip ->
-            ClipRow(clip = clip) { playClip(context, clip) }
+            ClipRow(
+                clip = clip,
+                onPlay = { playClip(context, clip) },
+                onDelete = { pendingDelete = clip },
+            )
         }
 
         Spacer(Modifier.height(30.dp))
     }
+
+    pendingDelete?.let { clip ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete this clip?", style = MaterialTheme.typography.headlineMedium) },
+            text = {
+                Text(
+                    text = "The " + formatDuration(clip.durationMs) +
+                        " clip is removed from this vlog and deleted from storage.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val file = File(Store.clipsDir(context), clip.fileName)
+                        runCatching { file.delete() }
+                        Store.removeClip(context, clip.id)
+                        WidgetUpdater.update(context)
+                        exportedFile = null
+                        exportNote = null
+                        pendingDelete = null
+                        tick++
+                    }
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold, color = RecordRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel", color = Ink) }
+            },
+        )
+    }
 }
 
 @Composable
-private fun ClipRow(clip: Clip, onClick: () -> Unit) {
+private fun ClipRow(clip: Clip, onPlay: () -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
     val file = remember(clip.fileName) { File(Store.clipsDir(context), clip.fileName) }
 
@@ -264,7 +306,7 @@ private fun ClipRow(clip: Clip, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onPlay),
     ) {
         Row(
             modifier = Modifier.padding(10.dp),
@@ -285,15 +327,16 @@ private fun ClipRow(clip: Clip, onClick: () -> Unit) {
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                SmallGlyph("▶") { onClick() }
+                SmallGlyph("▶") { onPlay() }
                 SmallGlyph("↗") { share(context, file) }
+                SmallGlyph("\u2715", destructive = true) { onDelete() }
             }
         }
     }
 }
 
 @Composable
-private fun SmallGlyph(glyph: String, onClick: () -> Unit) {
+private fun SmallGlyph(glyph: String, destructive: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(34.dp)
@@ -302,7 +345,7 @@ private fun SmallGlyph(glyph: String, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, fontSize = 13.sp, color = Ink)
+        Text(glyph, fontSize = 13.sp, color = if (destructive) RecordRed else Ink)
     }
 }
 

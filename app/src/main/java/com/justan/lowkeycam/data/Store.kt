@@ -116,7 +116,14 @@ object Store {
         clips(c).filter { it.projectId == projectId }.sortedBy { it.createdAt }
 
     fun addClip(c: Context, clip: Clip) {
-        val all = clips(c) + clip
+        saveClips(c, clips(c) + clip)
+    }
+
+    fun removeClip(c: Context, clipId: String) {
+        saveClips(c, clips(c).filterNot { it.id == clipId })
+    }
+
+    private fun saveClips(c: Context, all: List<Clip>) {
         val arr = JSONArray()
         all.forEach {
             arr.put(JSONObject().apply {

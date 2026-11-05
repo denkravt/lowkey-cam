@@ -2,6 +2,7 @@ package com.justan.lowkeycam.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -55,6 +56,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.justan.lowkeycam.camera.CameraActivity
 import com.justan.lowkeycam.data.Clip
 import com.justan.lowkeycam.data.Project
+import com.justan.lowkeycam.data.MediaStorePublisher
 import com.justan.lowkeycam.data.Store
 import com.justan.lowkeycam.data.VlogExporter
 import com.justan.lowkeycam.data.formatDuration
@@ -89,6 +91,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var exportProgress by remember { mutableStateOf(0 to 0) }
     var exportNote by remember { mutableStateOf<String?>(null) }
     var exportedFile by remember { mutableStateOf<File?>(null) }
+    var exportedUri by remember { mutableStateOf<Uri?>(null) }
     var pendingDelete by remember { mutableStateOf<Clip?>(null) }
 
     Column(
@@ -163,6 +166,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     exporting = true
                     exportNote = null
                     exportedFile = null
+                    exportedUri = null
                     exportProgress = 0 to clips.size
                     scope.launch {
                         val outcome = VlogExporter.export(
@@ -172,7 +176,20 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                         ) { done, totalClips -> exportProgress = done to totalClips }
                         exporting = false
                         exportedFile = outcome.file
-                        exportNote = when {
+
+                        var published: Uri? = null
+                        outcome.file?.let { file ->
+                            published = withContext(Dispatchers.IO) {
+                                MediaStorePublisher.publish(
+                                    context,
+                                    file,
+                                    MediaStorePublisher.displayName(project.name),
+                                )
+                            }
+                            exportedUri = published
+                        }
+
+                        val summary = when {
                             outcome.error != null -> "Export failed: " + outcome.error
                             outcome.skippedIncompatible > 0 ->
                                 "Exported " + outcome.used + " clips · " +
@@ -181,6 +198,11 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                                 "Exported " + outcome.used + " clips · " +
                                     outcome.skippedOrientation + " of the other orientation left out"
                             else -> "Exported " + outcome.used + " clips as one video"
+                        }
+                        exportNote = summary + when {
+                            published != null -> " · saved to gallery (Movies/LowKey)"
+                            outcome.file != null -> " · gallery save failed"
+                            else -> ""
                         }
                     }
                 },
@@ -201,7 +223,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     color = Ink,
                 )
                 Text(
-                    text = "stitches " + clips.size + " clips · no re-encode",
+                    text = clips.size.toString() + " clips \u2192 one video \u00b7 goes to your gallery",
                     style = MaterialTheme.typography.bodySmall,
                     color = Muted,
                 )
@@ -217,18 +239,19 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             )
         }
 
-        exportedFile?.let { file ->
+        val shareTarget = exportedUri ?: exportedFile?.let { clipUri(context, it) }
+        if (shareTarget != null) {
             Row(
                 modifier = Modifier
                     .padding(top = 8.dp)
                     .clip(RoundedCornerShape(100.dp))
                     .background(Forest)
-                    .clickable { share(context, file) }
+                    .clickable { shareUri(context, shareTarget) }
                     .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Share exported video \u2197",
+                    text = "Share the vlog \u2197",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = Cream,
@@ -388,6 +411,15 @@ private fun stamp(ms: Long): String =
 
 private fun clipUri(context: Context, file: File) =
     FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+
+private fun shareUri(context: Context, uri: Uri) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "video/mp4"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching { context.startActivity(Intent.createChooser(intent, "Share vlog")) }
+}
 
 private fun playClip(context: Context, clip: Clip) {
     val file = File(Store.clipsDir(context), clip.fileName)

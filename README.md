@@ -47,10 +47,13 @@ vlog *and* deletes the file from storage, and refreshes the widget.
 
 ## Exporting a whole vlog
 
-Project screen → **Export vlog as one video**. Every clip of the project is stitched into a single
-MP4 by copying encoded samples through `MediaExtractor` → `MediaMuxer` (no re-encode, seconds not
-minutes), then **Share exported video** sends it wherever you want. Output lands in
-`filesDir/exports`.
+Project screen → **Export vlog as one video**. Every clip of the project becomes a single MP4 and is
+written straight to the device gallery (`Movies/LowKey`) through MediaStore — no extra tap. **Share
+the vlog** then sends it wherever you want.
+
+Two paths: when all clips share encoder settings they are stitched losslessly (sample copy through
+`MediaExtractor` → `MediaMuxer`, seconds not minutes); otherwise a single `media3-transformer` pass
+re-encodes them cropped to 1280×720. A private copy stays in `filesDir/exports`.
 
 Because one MP4 carries a single rotation matrix, the project's dominant orientation wins; clips of
 the other orientation are left out and reported in the status line.

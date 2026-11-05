@@ -19,6 +19,7 @@ data class Clip(
     val durationMs: Long,
     val lowKey: Boolean,
     val createdAt: Long,
+    val order: Long = createdAt,
 )
 
 /**
@@ -107,16 +108,33 @@ object Store {
                     durationMs = o.optLong("durationMs", 0L),
                     lowKey = o.optBoolean("lowKey", false),
                     createdAt = o.optLong("createdAt", 0L),
+                    order = o.optLong("order", o.optLong("createdAt", 0L)),
                 )
             }
         }.getOrDefault(emptyList())
     }
 
     fun clips(c: Context, projectId: String): List<Clip> =
-        clips(c).filter { it.projectId == projectId }.sortedBy { it.createdAt }
+        clips(c)
+            .filter { it.projectId == projectId }
+            .sortedWith(compareBy({ it.order }, { it.createdAt }))
 
     fun addClip(c: Context, clip: Clip) {
         saveClips(c, clips(c) + clip)
+    }
+
+    /** Moves a clip one slot up (-1) or down (+1) inside its project. */
+    fun moveClip(c: Context, projectId: String, clipId: String, delta: Int) {
+        val ordered = clips(c, projectId).toMutableList()
+        val from = ordered.indexOfFirst { it.id == clipId }
+        val to = from + delta
+        if (from < 0 || to < 0 || to >= ordered.size) return
+        val moved = ordered.removeAt(from)
+        ordered.add(to, moved)
+
+        val renumbered = ordered.mapIndexed { index, clip -> clip.copy(order = index * 1000L) }
+        val others = clips(c).filterNot { it.projectId == projectId }
+        saveClips(c, others + renumbered)
     }
 
     fun updateClip(c: Context, clip: Clip) {
@@ -137,6 +155,7 @@ object Store {
                 put("durationMs", it.durationMs)
                 put("lowKey", it.lowKey)
                 put("createdAt", it.createdAt)
+                put("order", it.order)
             })
         }
         prefs(c).edit().putString(K_CLIPS, arr.toString()).apply()
@@ -147,6 +166,18 @@ object Store {
 
     fun totalDurationMs(c: Context, projectId: String): Long =
         clips(c, projectId).sumOf { it.durationMs }
+
+    fun musicFor(c: Context, projectId: String): String? =
+        prefs(c).getString("music_" + projectId, null)
+
+    fun setMusic(c: Context, projectId: String, fileName: String?) {
+        prefs(c).edit().apply {
+            if (fileName == null) remove("music_" + projectId) else putString("music_" + projectId, fileName)
+        }.apply()
+    }
+
+    fun musicDir(c: Context): java.io.File =
+        java.io.File(c.filesDir, "music").apply { if (!exists()) mkdirs() }
 
     fun lowKeyDefault(c: Context): Boolean = prefs(c).getBoolean(K_LOWKEY_DEFAULT, true)
 

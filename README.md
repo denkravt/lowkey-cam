@@ -19,6 +19,8 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Projects + private clip storage | `data/Store.kt` |
 | Project screen: clip thumbnails, play, share, delete | `ui/ProjectScreen.kt` |
 | Clip editor: trim with live preview | `ui/ClipEditorScreen.kt` |
+| Reorder clips (⋮ menu) | `data/Store.kt` |
+| Background music, mixed on export | `data/ClipProcessor.kt` |
 | Export whole vlog as one MP4 (lossless stitch) | `data/VlogExporter.kt` |
 | Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
 | Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
@@ -52,6 +54,15 @@ and deletes the original.
 
 Every clip row has **play / share / ✕**. ✕ asks for confirmation, then removes the entry from the
 vlog *and* deletes the file from storage, and refreshes the widget.
+
+## Music and clip order
+
+**Music** — pick a track from the project screen (`Add track`, any audio file via SAF). It is copied
+into the project, looped for the whole vlog, and mixed under the clip audio by `DefaultAudioMixer`
+(`Transformer.Builder.setAudioMixerFactory`) at export time. **Remove** drops it.
+
+**Order** — each clip's ⋮ menu has Move up / Move down. Clips carry an explicit `order` field, so the
+project list — and therefore the export — follows your arrangement instead of recording time.
 
 ## Exporting a whole vlog
 

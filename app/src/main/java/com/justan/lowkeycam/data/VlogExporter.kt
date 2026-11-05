@@ -37,6 +37,7 @@ object VlogExporter {
         context: Context,
         projectId: String,
         projectName: String,
+        musicFile: File? = null,
         onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): Outcome = withContext(Dispatchers.IO) {
         val all = Store.clips(context, projectId)
@@ -51,6 +52,18 @@ object VlogExporter {
 
         val exportsDir = File(context.filesDir, "exports").apply { mkdirs() }
         val output = File(exportsDir, "vlog_" + safeName(projectName) + "_" + System.currentTimeMillis() + ".mp4")
+
+        if (musicFile != null && musicFile.exists()) {
+            // Music needs a real mix, so this path always re-encodes (and crops to 16:9 on the way).
+            val files = all.map { File(Store.clipsDir(context), it.fileName) }.filter { it.exists() }
+            onProgress(0, files.size)
+            return@withContext if (ClipProcessor.concatWithMusic(context, files, musicFile, output)) {
+                onProgress(files.size, files.size)
+                Outcome(output, files.size, 0, 0, null)
+            } else {
+                Outcome(null, 0, 0, 0, "Export with music failed")
+            }
+        }
 
         val buffer = ByteBuffer.allocateDirect(2 * 1024 * 1024)
         val info = MediaCodec.BufferInfo()

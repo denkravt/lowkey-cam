@@ -3,6 +3,7 @@ package com.justan.lowkeycam.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,7 +25,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -96,6 +101,21 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var exportedUri by remember { mutableStateOf<Uri?>(null) }
     var pendingDelete by remember { mutableStateOf<Clip?>(null) }
     var editingClip by remember { mutableStateOf<Clip?>(null) }
+    var musicName by remember { mutableStateOf(Store.musicFor(context, project.id)) }
+
+    val musicPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val copied = withContext(Dispatchers.IO) { copyMusic(context, uri) }
+                if (copied != null) {
+                    Store.setMusic(context, project.id, copied)
+                    musicName = copied
+                }
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -176,6 +196,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                             context = context,
                             projectId = project.id,
                             projectName = project.name,
+                            musicFile = musicName?.let { File(Store.musicDir(context), it) },
                         ) { done, totalClips -> exportProgress = done to totalClips }
                         exporting = false
                         exportedFile = outcome.file
@@ -262,6 +283,49 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             }
         }
 
+        Spacer(Modifier.height(18.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("MUSIC", style = MaterialTheme.typography.labelSmall, color = Moss)
+                Text(
+                    text = musicName?.let { trackLabel(it) } ?: "No track — the vlog uses clip audio",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (musicName != null) Ink else Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (musicName != null) {
+                Text(
+                    text = "Remove",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .clickable {
+                            Store.setMusic(context, project.id, null)
+                            musicName = null
+                        },
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(100.dp),
+                color = Sand,
+                modifier = Modifier.clickable { musicPicker.launch(arrayOf("audio/*")) },
+            ) {
+                Text(
+                    text = if (musicName == null) "Add track" else "Change",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Forest,
+                )
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
         Text("CLIPS", style = MaterialTheme.typography.labelSmall, color = Moss)
         Text(
@@ -284,6 +348,15 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 clip = clip,
                 onEdit = { editingClip = clip },
                 onPlay = { playClip(context, clip) },
+                onShare = { share(context, File(Store.clipsDir(context), clip.fileName)) },
+                onMoveUp = {
+                    Store.moveClip(context, project.id, clip.id, -1)
+                    tick++
+                },
+                onMoveDown = {
+                    Store.moveClip(context, project.id, clip.id, 1)
+                    tick++
+                },
                 onDelete = { pendingDelete = clip },
             )
         }
@@ -349,8 +422,12 @@ private fun ClipRow(
     clip: Clip,
     onEdit: () -> Unit,
     onPlay: () -> Unit,
+    onShare: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val file = remember(clip.fileName) { File(Store.clipsDir(context), clip.fileName) }
 
@@ -383,8 +460,40 @@ private fun ClipRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SmallGlyph("▶") { onPlay() }
-                SmallGlyph("↗") { share(context, file) }
-                SmallGlyph("\u2715", destructive = true) { onDelete() }
+                Box {
+                    SmallGlyph("\u22EE") { menuOpen = true }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Trim clip", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = { menuOpen = false; onEdit() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move up", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = { menuOpen = false; onMoveUp() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Move down", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = { menuOpen = false; onMoveDown() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Share", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = { menuOpen = false; onShare() },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Delete",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = RecordRed,
+                                )
+                            },
+                            onClick = { menuOpen = false; onDelete() },
+                        )
+                    }
+                }
             }
         }
     }
@@ -437,6 +546,24 @@ private fun ClipThumb(file: File) {
         }
     }
 }
+
+private fun copyMusic(context: Context, uri: Uri): String? = runCatching {
+    val display = context.contentResolver
+        .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        ?: "track.audio"
+    val clean = display.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9 ]"), "").trim()
+        .ifBlank { "track" }
+    val ext = display.substringAfterLast('.', "m4a").take(5)
+    val target = File(Store.musicDir(context), System.currentTimeMillis().toString() + "__" + clean + "." + ext)
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        target.outputStream().use { output -> input.copyTo(output) }
+    }
+    target.name
+}.getOrNull()
+
+private fun trackLabel(stored: String): String =
+    stored.substringAfter("__").substringBeforeLast('.')
 
 private fun stamp(ms: Long): String =
     SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()).format(Date(ms))

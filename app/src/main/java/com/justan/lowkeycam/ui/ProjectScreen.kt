@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,12 +54,14 @@ import com.justan.lowkeycam.camera.CameraActivity
 import com.justan.lowkeycam.data.Clip
 import com.justan.lowkeycam.data.Project
 import com.justan.lowkeycam.data.Store
+import com.justan.lowkeycam.data.VlogExporter
 import com.justan.lowkeycam.data.formatDuration
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -77,6 +80,12 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
 
     val clips = remember(tick, project.id) { Store.clips(context, project.id) }
     val total = clips.sumOf { it.durationMs }
+
+    val scope = rememberCoroutineScope()
+    var exporting by remember { mutableStateOf(false) }
+    var exportProgress by remember { mutableStateOf(0 to 0) }
+    var exportNote by remember { mutableStateOf<String?>(null) }
+    var exportedFile by remember { mutableStateOf<File?>(null) }
 
     Column(
         modifier = Modifier
@@ -133,6 +142,90 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 Text(
                     text = "● Record into this project",
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Cream,
+                )
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(100.dp),
+            color = Card,
+            shadowElevation = 3.dp,
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .fillMaxWidth()
+                .clickable(enabled = !exporting && clips.isNotEmpty()) {
+                    exporting = true
+                    exportNote = null
+                    exportedFile = null
+                    exportProgress = 0 to clips.size
+                    scope.launch {
+                        val outcome = VlogExporter.export(
+                            context = context,
+                            projectId = project.id,
+                            projectName = project.name,
+                        ) { done, totalClips -> exportProgress = done to totalClips }
+                        exporting = false
+                        exportedFile = outcome.file
+                        exportNote = when {
+                            outcome.error != null -> "Export failed: " + outcome.error
+                            outcome.skippedIncompatible > 0 ->
+                                "Exported " + outcome.used + " clips · " +
+                                    outcome.skippedIncompatible + " couldn't be joined"
+                            outcome.skippedOrientation > 0 ->
+                                "Exported " + outcome.used + " clips · " +
+                                    outcome.skippedOrientation + " of the other orientation left out"
+                            else -> "Exported " + outcome.used + " clips as one video"
+                        }
+                    }
+                },
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 13.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = when {
+                        exporting && exportProgress.second > 0 ->
+                            "Exporting " + exportProgress.first + "/" + exportProgress.second + "\u2026"
+                        exporting -> "Exporting\u2026"
+                        else -> "Export vlog as one video"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Ink,
+                )
+                Text(
+                    text = "stitches " + clips.size + " clips · no re-encode",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                )
+            }
+        }
+
+        exportNote?.let { note ->
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (note.startsWith("Export failed")) RecordRed else Moss,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+        }
+
+        exportedFile?.let { file ->
+            Row(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(Forest)
+                    .clickable { share(context, file) }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Share exported video \u2197",
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                     color = Cream,
                 )

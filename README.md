@@ -17,6 +17,7 @@ Plus the Android-native extras that iOS can't do: a **Quick Settings tile** (wor
 | Record / pause / resume, timer, flip camera, torch | same |
 | Projects + private clip storage | `data/Store.kt` |
 | Project screen: clip thumbnails, play, share | `ui/ProjectScreen.kt` |
+| Export whole vlog as one MP4 (lossless stitch) | `data/VlogExporter.kt` |
 | Home screen widget, 3×2 (project name, clip count, REC buttons) | `widget/RecordWidget.kt` |
 | Home screen widget, 1×1 (single REC button) | `widget/QuickRecordWidget.kt` |
 | Quick Settings tile | `tile/RecordTileService.kt` |
@@ -28,15 +29,27 @@ matching Reelshot's "keep it off your camera roll" positioning. Share exports vi
 
 CameraX exposes a per-use-case `targetRotation`. The activity is locked to portrait, so:
 
-- `Preview` stays at `Surface.ROTATION_0` → sensor image is upright in the portrait window.
-- `VideoCapture` is set to `Surface.ROTATION_90` → the encoder writes a 1920×1080 buffer and
-  tags the MP4 with a 90° rotation matrix, so players show a normal landscape video.
+- `VideoCapture.targetRotation = Surface.ROTATION_90` → the recorder captures the **native
+  landscape stream** (16:9 of the sensor) and tags the MP4 with a 0° rotation, so it plays wide.
+- `Preview.targetRotation` is set to the **same** value. Both use cases therefore share one
+  stream configuration, so the preview is the recorded frame — not a portrait crop blown up.
 
-The preview is composed as a 16:9 landscape frame in the middle of the portrait screen with the
-`PreviewView` rotated −90°, so what you see is exactly what gets recorded (just laid sideways).
+The preview is laid out as a 16:9 frame in the middle of the portrait screen. Because the phone is
+held upright, the scene inside it appears sideways — that is inherent to filming landscape while
+holding portrait, and it is what the file contains.
 
 Because the file carries rotation metadata instead of baked-in pixels, no re-encode is needed and
 quality is full-rate.
+
+## Exporting a whole vlog
+
+Project screen → **Export vlog as one video**. Every clip of the project is stitched into a single
+MP4 by copying encoded samples through `MediaExtractor` → `MediaMuxer` (no re-encode, seconds not
+minutes), then **Share exported video** sends it wherever you want. Output lands in
+`filesDir/exports`.
+
+Because one MP4 carries a single rotation matrix, the project's dominant orientation wins; clips of
+the other orientation are left out and reported in the status line.
 
 ## Build
 

@@ -154,6 +154,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     }
 
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var bound by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<Recording?>(null) }
@@ -250,12 +251,14 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                 .build()
             val vc = VideoCapture.withOutput(recorder)
             vc.targetRotation = if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
+            val preview = Preview.Builder()
+                .setTargetRotation(if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0)
+                .build()
+                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
             provider.unbindAll()
             val cam = provider.bindToLifecycle(owner, selector, preview, vc)
+            previewUseCase = preview
             videoCapture = vc
             camera = cam
             error = null
@@ -266,7 +269,9 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     }
 
     LaunchedEffect(lowKey, bound) {
-        videoCapture?.targetRotation = if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0
+        val rotation = if (lowKey) Surface.ROTATION_90 else Surface.ROTATION_0
+        videoCapture?.targetRotation = rotation
+        previewUseCase?.targetRotation = rotation
     }
 
     LaunchedEffect(torch, bound) {
@@ -354,11 +359,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         ) {
                             AndroidView(
                                 factory = { previewView },
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .width(frameH)
-                                    .height(screenW)
-                                    .graphicsLayer { rotationZ = -90f },
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                     }

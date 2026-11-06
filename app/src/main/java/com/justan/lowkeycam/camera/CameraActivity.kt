@@ -5,6 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.os.Handler
@@ -32,6 +36,7 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +48,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -59,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,6 +194,23 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var lensOptions by remember { mutableStateOf<List<Pair<Float, CameraSelector>>>(emptyList()) }
+    var gravityX by remember { mutableFloatStateOf(0f) }
+
+    DisposableEffect(Unit) {
+        val sensorManager = context.getSystemService(SensorManager::class.java)
+        val accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                gravityX = event.values[0]
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        if (accelerometer != null) {
+            sensorManager?.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+        onDispose { sensorManager?.unregisterListener(listener) }
+    }
     var lensIndex by remember { mutableStateOf(0) }
     var camera by remember { mutableStateOf<Camera?>(null) }
     var bound by remember { mutableStateOf(false) }
@@ -675,56 +699,102 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
             }
         }
 
-        // ---- landscape overlay: preview is full-bleed, controls float on top ----
+        // ---- landscape overlay: preview is full-bleed, the shutter rides the physical bottom edge ----
         if (landscape) {
+            // Accelerometer X tells us which short edge of the phone is in the user's palm:
+            // reading > 0 means the top edge points left, so the device bottom is on the right.
+            val controlsOnRight = gravityX > 1f
+
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(130.dp)
                     .background(Brush.verticalGradient(listOf(Color(0xAA000000), Color(0x00000000))))
             )
             Box(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .background(Brush.verticalGradient(listOf(Color(0x00000000), Color(0xCC000000))))
+                    .align(if (controlsOnRight) Alignment.CenterEnd else Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(180.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            if (controlsOnRight) listOf(Color(0x00000000), Color(0xCC000000))
+                            else listOf(Color(0xCC000000), Color(0x00000000))
+                        )
+                    )
             )
-            Column(
-                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(horizontal = 16.dp)
+
+            Box(
+                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                // top bar + chips
+                Column(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    CircleButton("\u2715", onClose)
-                    Spacer(Modifier.weight(1f))
-                    Surface(shape = RoundedCornerShape(100.dp), color = Color(0x33FFFFFF)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircleButton("\u2715", onClose)
+                        Spacer(Modifier.weight(1f))
+                        Surface(shape = RoundedCornerShape(100.dp), color = Color(0x33FFFFFF)) {
+                            Text(
+                                text = if (lowKey) "LOW-KEY · 16:9" else "STANDARD · LANDSCAPE",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
                         Text(
-                            text = if (lowKey) "LOW-KEY · 16:9" else "STANDARD · LANDSCAPE",
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            color = Color.White,
-                            fontSize = 10.sp,
+                            text = formatDuration(elapsedMs),
+                            color = if (isRecording) Color(0xFFFF6B5E) else Color(0x99FFFFFF),
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp,
                         )
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        text = formatDuration(elapsedMs),
-                        color = if (isRecording) Color(0xFFFF6B5E) else Color(0x99FFFFFF),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (lensOptions.size > 1) {
+                            lensOptions.forEachIndexed { index, lens ->
+                                Chip(zoomLabel(lens.first), index == lensIndex) {
+                                    if (!isRecording) lensIndex = index
+                                }
+                            }
+                        }
+                        Chip("Low-key", lowKey) {
+                            if (!isRecording) {
+                                lowKey = !lowKey
+                                Store.setLowKeyDefault(context, lowKey)
+                                (context as? ComponentActivity)?.requestedOrientation =
+                                    if (lowKey) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                            }
+                        }
+                        Chip("Blackout", stealth) { stealth = !stealth }
+                        Chip("Torch", torch) {
+                            if (!isRecording && lensFacing == CameraSelector.LENS_FACING_BACK) torch = !torch
+                        }
+                    }
                 }
 
-                Spacer(Modifier.weight(1f))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+                // shutter stack pinned to the physical bottom of the device
+                Column(
+                    modifier = Modifier
+                        .align(if (controlsOnRight) Alignment.CenterEnd else Alignment.CenterStart)
+                        .padding(horizontal = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     CircleButton(if (lensFacing == CameraSelector.LENS_FACING_BACK) "\u21BB" else "\u21BA") {
                         if (!isRecording) {
@@ -736,11 +806,9 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         }
                     }
 
-                    Spacer(Modifier.width(28.dp))
-
                     Box(
                         modifier = Modifier
-                            .size(76.dp)
+                            .size(78.dp)
                             .clip(CircleShape)
                             .border(4.dp, Color.White, CircleShape)
                             .clickable {
@@ -770,39 +838,10 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         }
                     }
 
-                    Spacer(Modifier.width(28.dp))
-
                     if (isRecording) {
                         CircleButton(if (paused) "\u25B6" else "\u2161") { togglePause() }
                     } else {
                         Spacer(Modifier.size(44.dp))
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (lensOptions.size > 1) {
-                        lensOptions.forEachIndexed { index, lens ->
-                            Chip(zoomLabel(lens.first), index == lensIndex) {
-                                if (!isRecording) lensIndex = index
-                            }
-                        }
-                    }
-                    Chip("Low-key", lowKey) {
-                        if (!isRecording) {
-                            lowKey = !lowKey
-                            Store.setLowKeyDefault(context, lowKey)
-                            (context as? ComponentActivity)?.requestedOrientation =
-                                if (lowKey) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                else ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-                        }
-                    }
-                    Chip("Blackout", stealth) { stealth = !stealth }
-                    Chip("Torch", torch) {
-                        if (!isRecording && lensFacing == CameraSelector.LENS_FACING_BACK) torch = !torch
                     }
                 }
             }
@@ -834,7 +873,8 @@ private fun CircleButton(label: String, onClick: () -> Unit) {
 private fun Chip(label: String, active: Boolean, onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(100.dp),
-        color = if (active) Color.White else Color(0x2EFFFFFF),
+        color = if (active) Color.White else Color(0x73000000),
+        border = if (active) null else BorderStroke(1.dp, Color(0x40FFFFFF)),
         modifier = Modifier.clickable(onClick = onClick),
     ) {
         Text(

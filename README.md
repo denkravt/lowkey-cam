@@ -39,6 +39,10 @@ matching Reelshot's "keep it off your camera roll" positioning. Share exports vi
 landscape rotates the UI and both `Preview` and `VideoCapture` are re-pointed at the new display
 rotation (`DisplayManager.DisplayListener`). Portrait stays portrait, landscape stays landscape.
 
+In landscape the shutter never moves to the "screen bottom" — it stays on the **physical bottom edge
+of the phone**, whichever side that is. The accelerometer decides: `event.values[0] > 0` means the
+top edge points left, so the device bottom is on the right and the rail is pinned there.
+
 **Low-key mode** deliberately locks itself to portrait (it crops a 16:9 band out of a portrait take),
 and switching the toggle flips the activity between `PORTRAIT` and `FULL_SENSOR`.
 

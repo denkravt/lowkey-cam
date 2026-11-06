@@ -8,6 +8,7 @@ import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,9 +51,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,6 +121,14 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var renaming by remember { mutableStateOf<String?>(null) }
     var recapRunning by remember { mutableStateOf(false) }
     var recapProgress by remember { mutableStateOf(0 to 0) }
+    var dragFrom by remember { mutableStateOf(-1) }
+    var dragOffset by remember { mutableStateOf(0f) }
+    var rowHeightPx by remember { mutableStateOf(0f) }
+
+    fun dropTarget(index: Int): Int {
+        if (rowHeightPx <= 0f) return index
+        return (index + (dragOffset / rowHeightPx).roundToInt()).coerceIn(0, (clips.size - 1).coerceAtLeast(0))
+    }
 
     fun runRecap(seconds: Int) {
         if (recapRunning || clips.isEmpty()) return
@@ -440,7 +456,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             text = if (recapRunning) {
                 "Trimming every clip to " + recapProgress.first + "/" + recapProgress.second + "\u2026"
             } else {
-                "Tap a clip to trim it"
+                "Drag to reorder · tap to trim"
             },
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
@@ -484,18 +500,41 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             )
         }
 
-        clips.asReversed().forEach { clip ->
+        clips.forEachIndexed { index, clip ->
+            val dragging = dragFrom == index
             ClipRow(
                 clip = clip,
+                index = index,
+                dragging = dragging,
+                dragOffset = if (dragging) dragOffset else 0f,
+                dropMarker = dragFrom >= 0 && dragFrom != index && index == dropTarget(dragFrom),
+                onHeight = { height -> if (rowHeightPx <= 0f) rowHeightPx = height },
+                onDragStart = {
+                    dragFrom = index
+                    dragOffset = 0f
+                },
+                onDrag = { delta -> dragOffset += delta },
+                onDragEnd = {
+                    val target = dropTarget(dragFrom)
+                    if (target != dragFrom) {
+                        Store.moveClipTo(context, project.id, dragFrom, target)
+                        WidgetUpdater.update(context)
+                    }
+                    dragFrom = -1
+                    dragOffset = 0f
+                    tick++
+                },
                 onEdit = { editingClip = clip },
                 onPlay = { playClip(context, clip) },
                 onShare = { share(context, File(Store.clipsDir(context), clip.fileName)) },
                 onMoveUp = {
                     Store.moveClip(context, project.id, clip.id, -1)
+                    WidgetUpdater.update(context)
                     tick++
                 },
                 onMoveDown = {
                     Store.moveClip(context, project.id, clip.id, 1)
+                    WidgetUpdater.update(context)
                     tick++
                 },
                 onDelete = { pendingDelete = clip },
@@ -604,6 +643,14 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
 @Composable
 private fun ClipRow(
     clip: Clip,
+    index: Int,
+    dragging: Boolean,
+    dragOffset: Float,
+    dropMarker: Boolean,
+    onHeight: (Float) -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
     onEdit: () -> Unit,
     onPlay: () -> Unit,
     onShare: () -> Unit,
@@ -618,11 +665,40 @@ private fun ClipRow(
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = Card,
-        shadowElevation = 3.dp,
+        shadowElevation = if (dragging) 14.dp else 3.dp,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable(onClick = onEdit),
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer {
+                translationY = if (dragging) dragOffset else 0f
+                scaleX = if (dragging) 1.02f else 1f
+                scaleY = if (dragging) 1.02f else 1f
+                alpha = if (dragging) 0.96f else 1f
+            }
+            .onSizeChanged { if (index == 0) onHeight(it.height.toFloat()) }
+            .drawWithContent {
+                drawContent()
+                if (dropMarker) {
+                    drawRect(
+                        color = androidx.compose.ui.graphics.Color(0xFF2B4B3A),
+                        topLeft = Offset(0f, 0f),
+                        size = Size(size.width, 6f),
+                    )
+                }
+            }
+            .clickable(onClick = onEdit)
+            .pointerInput(clip.id) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { onDragStart() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        onDrag(amount.y)
+                    },
+                    onDragEnd = { onDragEnd() },
+                    onDragCancel = { onDragEnd() },
+                )
+            },
     ) {
         Row(
             modifier = Modifier.padding(10.dp),

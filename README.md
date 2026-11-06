@@ -79,7 +79,7 @@ vlog *and* deletes the file from storage, and refreshes the widget.
 - **Export vlog as one video** — stitched, cropped to 16:9, saved to the gallery
 - **Music** — pick a track, set its level (0–100%), remove it
 - **Recap** — one tap trims every clip down to 2 / 3 / 5 seconds
-- **CLIPS** — tap a clip to trim it; ⋮ for Trim / Move up / Move down / Share / Delete
+- **CLIPS** — shown in playback order; **long-press a clip to drag it** anywhere in the list, tap to trim, ⋮ for Trim / Move / Share / Delete
 - **Tap the title** to rename the project
 
 ## Music and clip order
@@ -88,8 +88,9 @@ vlog *and* deletes the file from storage, and refreshes the widget.
 into the project, looped for the whole vlog, and mixed under the clip audio by `DefaultAudioMixer`
 (`Transformer.Builder.setAudioMixerFactory`) at export time. **Remove** drops it.
 
-**Order** — each clip's ⋮ menu has Move up / Move down. Clips carry an explicit `order` field, so the
-project list — and therefore the export — follows your arrangement instead of recording time.
+**Order** — long-press a clip and drag it; a green marker shows where it will land, the row lifts
+while dragging, and the drop rewrites the project's `order` field. The ⋮ menu still has Move up /
+Move down for one-step nudges. The list, the playback and the export all follow that order.
 
 ## Exporting a whole vlog
 

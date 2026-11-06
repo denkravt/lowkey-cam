@@ -125,10 +125,16 @@ object Store {
 
     /** Moves a clip one slot up (-1) or down (+1) inside its project. */
     fun moveClip(c: Context, projectId: String, clipId: String, delta: Int) {
-        val ordered = clips(c, projectId).toMutableList()
+        val ordered = clips(c, projectId)
         val from = ordered.indexOfFirst { it.id == clipId }
-        val to = from + delta
-        if (from < 0 || to < 0 || to >= ordered.size) return
+        if (from < 0) return
+        moveClipTo(c, projectId, from, from + delta)
+    }
+
+    /** Drops the clip at [from] onto [to]; everything in between shifts. */
+    fun moveClipTo(c: Context, projectId: String, from: Int, to: Int) {
+        val ordered = clips(c, projectId).toMutableList()
+        if (from !in ordered.indices || to !in ordered.indices || from == to) return
         val moved = ordered.removeAt(from)
         ordered.add(to, moved)
 

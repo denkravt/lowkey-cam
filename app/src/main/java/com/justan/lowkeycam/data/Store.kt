@@ -241,6 +241,13 @@ object Store {
     fun musicDir(c: Context): java.io.File =
         java.io.File(c.filesDir, "music").apply { if (!exists()) mkdirs() }
 
+    /** Capture tier: "SD" | "HD" (720p) | "FHD" (1080p) | "UHD" (4K). */
+    fun videoQuality(c: Context): String = prefs(c).getString("video_quality", null) ?: "FHD"
+
+    fun setVideoQuality(c: Context, quality: String) {
+        prefs(c).edit().putString("video_quality", quality).apply()
+    }
+
     fun lowKeyDefault(c: Context): Boolean = prefs(c).getBoolean(K_LOWKEY_DEFAULT, true)
 
     fun setLowKeyDefault(c: Context, value: Boolean) {

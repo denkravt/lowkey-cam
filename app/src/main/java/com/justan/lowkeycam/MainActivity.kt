@@ -72,6 +72,7 @@ import com.justan.lowkeycam.ui.Muted
 import com.justan.lowkeycam.ui.ProjectScreen
 import com.justan.lowkeycam.ui.RecordRed
 import com.justan.lowkeycam.ui.Sand
+import com.justan.lowkeycam.ui.SettingsScreen
 import com.justan.lowkeycam.widget.QuickRecordWidgetReceiver
 import com.justan.lowkeycam.widget.RecordWidgetReceiver
 import com.justan.lowkeycam.widget.WidgetUpdater
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             LowKeyTheme {
                 var openProjectId by remember { mutableStateOf<String?>(null) }
+                var showSettings by remember { mutableStateOf(false) }
                 val open = openProjectId?.let { id -> Store.projects(this).firstOrNull { it.id == id } }
                 if (open != null) {
                     BackHandler { openProjectId = null }
@@ -92,8 +94,14 @@ class MainActivity : ComponentActivity() {
                         project = open,
                         onBack = { openProjectId = null },
                     )
+                } else if (showSettings) {
+                    BackHandler { showSettings = false }
+                    SettingsScreen(onBack = { showSettings = false })
                 } else {
-                    HomeScreen(onOpenProject = { openProjectId = it.id })
+                    HomeScreen(
+                        onOpenProject = { openProjectId = it.id },
+                        onOpenSettings = { showSettings = true },
+                    )
                 }
             }
         }
@@ -101,7 +109,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
+private fun HomeScreen(
+    onOpenProject: (Project) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+) {
     val context = LocalContext.current
     var tick by remember { mutableIntStateOf(0) }
     val owner = LocalLifecycleOwner.current
@@ -234,6 +245,31 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PinPill("Pin widget · 3×2", Modifier.weight(1f)) { pinWidget(context, compact = false) }
             PinPill("Pin REC · 1×1", Modifier.weight(1f)) { pinWidget(context, compact = true) }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(100.dp),
+            color = Sand,
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenSettings),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Settings",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Forest,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = qualityLabel(Store.videoQuality(context)) + " ›",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Muted,
+                )
+            }
         }
 
         Spacer(Modifier.height(26.dp))
@@ -437,6 +473,13 @@ private fun PinPill(label: String, modifier: Modifier = Modifier, onClick: () ->
             )
         }
     }
+}
+
+private fun qualityLabel(key: String): String = when (key) {
+    "UHD" -> "4K"
+    "HD" -> "720p"
+    "SD" -> "480p"
+    else -> "1080p"
 }
 
 private fun shareClip(context: android.content.Context, clip: Clip) {

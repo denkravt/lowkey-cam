@@ -59,7 +59,8 @@ mode does the same thing: **shoot portrait, keep only the 16:9 band**.
 So low-key mode records portrait (both `Preview` and `VideoCapture` at `ROTATION_0`, so the preview
 is upright and honest) and shows a bright 16:9 band with the rest dimmed. On stop, the take is
 trimmed to that band with `media3-transformer` (`Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP`) into
-a 1280×720 landscape MP4, and the portrait original is deleted. Cost: a second or two of processing
+a 16:9 landscape MP4 at the band's native size (1080×608 from a 1080p portrait take), and the
+portrait original is deleted. Cost: a second or two of processing
 per take.
 
 The band is the recording — what the bright area shows is exactly what lands in the file.
@@ -85,6 +86,8 @@ vlog *and* deletes the file from storage, and refreshes the widget.
 - **Recap** — one tap trims every clip down to 2 / 3 / 5 seconds
 - **CLIPS** — shown in playback order; **long-press a clip to drag it** anywhere in the list, tap to trim, ⋮ for Trim / Move / Share / Delete
 - **Tap the title** to rename the project
+- **Settings** — Recording resolution (4K / 1080p / 720p). Applies to capture; low-key files then crop
+to the matching band instead of being scaled afterwards.
 - **Delete** — ⋮ in the project header: delete every clip in the project (project stays) or the whole project. ⋮ on a home-screen row deletes that project. Files, the music track and orphaned takes go with it.
 
 ## Music and clip order
@@ -105,7 +108,8 @@ the vlog** then sends it wherever you want.
 
 Two paths: when all clips share encoder settings they are stitched losslessly (sample copy through
 `MediaExtractor` → `MediaMuxer`, seconds not minutes); otherwise a single `media3-transformer` pass
-re-encodes them cropped to 1280×720. A private copy stays in `filesDir/exports`.
+re-encodes them cropped to 16:9 at the widest band any clip provides. A private copy stays in
+`filesDir/exports`.
 
 Because one MP4 carries a single rotation matrix, the project's dominant orientation wins; clips of
 the other orientation are left out and reported in the status line.

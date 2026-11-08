@@ -1,6 +1,7 @@
 package com.justan.lowkeycam.data
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
@@ -27,8 +28,46 @@ import kotlinx.coroutines.withContext
  */
 object ClipProcessor {
 
-    private const val OUTPUT_WIDTH = 1280
-    private const val OUTPUT_HEIGHT = 720
+    /**
+     * Largest 16:9 rectangle that fits inside [w]x[h] - the same band the low-key preview shows.
+     * Both sides are rounded to even numbers because H.264 encoders require it.
+     */
+    internal fun band169(w: Int, h: Int): Pair<Int, Int> {
+        val bandW: Int
+        val bandH: Int
+        if (w * 9 >= h * 16) {
+            bandH = h
+            bandW = h * 16 / 9
+        } else {
+            bandW = w
+            bandH = w * 9 / 16
+        }
+        return (bandW - bandW % 2).coerceAtLeast(2) to (bandH - bandH % 2).coerceAtLeast(2)
+    }
+
+    /**
+     * The widest band any of [sources] can fill, so nothing is upscaled past its own detail and
+     * smaller clips are scaled up to match the best one.
+     */
+    internal fun largestBand(sources: List<File>): Pair<Int, Int> =
+        sources.map { bandFor(it) }.maxByOrNull { it.first } ?: (1280 to 720)
+
+    /** Reads a clip's displayed size (rotation applied) and returns the 16:9 band it can yield. */
+    internal fun bandFor(source: File): Pair<Int, Int> {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(source.path)
+            val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+            val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+            val (vw, vh) = if (rotation % 180 != 0) h to w else w to h
+            if (vw <= 0 || vh <= 0) 1280 to 720 else band169(vw, vh)
+        } catch (t: Throwable) {
+            1280 to 720
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
 
     /**
      * Re-encodes the clips into one 16:9 video with [music] mixed underneath the clips' own audio.
@@ -45,6 +84,7 @@ object ClipProcessor {
         if (sources.isEmpty()) return false
         val latch = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>(null)
+        val (outW, outH) = withContext(Dispatchers.IO) { largestBand(sources) }
 
         withContext(Dispatchers.Main) {
             val clipItems = sources.map { source ->
@@ -54,8 +94,8 @@ object ClipProcessor {
                             emptyList(),
                             listOf(
                                 Presentation.createForWidthAndHeight(
-                                    OUTPUT_WIDTH,
-                                    OUTPUT_HEIGHT,
+                                    outW,
+                                    outH,
                                     Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP,
                                 )
                             ),
@@ -119,6 +159,7 @@ object ClipProcessor {
         if (sources.isEmpty()) return false
         val latch = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>(null)
+        val (outW, outH) = withContext(Dispatchers.IO) { largestBand(sources) }
 
         withContext(Dispatchers.Main) {
             val items = sources.map { source ->
@@ -128,8 +169,8 @@ object ClipProcessor {
                             emptyList(),
                             listOf(
                                 Presentation.createForWidthAndHeight(
-                                    OUTPUT_WIDTH,
-                                    OUTPUT_HEIGHT,
+                                    outW,
+                                    outH,
                                     Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP,
                                 )
                             ),
@@ -222,6 +263,7 @@ object ClipProcessor {
 
     @OptIn(markerClass = [UnstableApi::class])
     suspend fun cropTo16x9(context: Context, source: File): File? {
+        val (outW, outH) = withContext(Dispatchers.IO) { bandFor(source) }
         val output = File(source.parentFile, "lk_" + System.currentTimeMillis() + ".mp4")
         val latch = CountDownLatch(1)
         val failure = AtomicReference<Throwable?>(null)
@@ -233,8 +275,8 @@ object ClipProcessor {
                         emptyList(),
                         listOf(
                             Presentation.createForWidthAndHeight(
-                                OUTPUT_WIDTH,
-                                OUTPUT_HEIGHT,
+                                    outW,
+                                    outH,
                                 Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP,
                             )
                         ),

@@ -350,10 +350,17 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                     lensOptions = options
                 }
             }
+            // Settings → Recording resolution. Anything the camera can't do falls back one tier.
+            val wanted = when (Store.videoQuality(context)) {
+                "UHD" -> Quality.UHD
+                "HD" -> Quality.HD
+                "SD" -> Quality.SD
+                else -> Quality.FHD
+            }
             val recorder = Recorder.Builder()
                 .setQualitySelector(
                     QualitySelector.fromOrderedList(
-                        listOf(Quality.UHD, Quality.FHD, Quality.HD, Quality.SD),
+                        listOf(wanted, Quality.FHD, Quality.HD, Quality.SD),
                         FallbackStrategy.lowerQualityOrHigherThan(Quality.SD),
                     )
                 )

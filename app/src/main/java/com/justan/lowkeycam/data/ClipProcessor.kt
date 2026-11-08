@@ -106,7 +106,7 @@ object ClipProcessor {
                 }
         }
 
-        withContext(Dispatchers.IO) { latch.await(15, TimeUnit.MINUTES) }
+            withContext(Dispatchers.IO) { latch.await(15, TimeUnit.MINUTES) }
         return failure.get() == null && output.exists() && output.length() > 0L
     }
 
@@ -163,7 +163,7 @@ object ClipProcessor {
                 }
         }
 
-        withContext(Dispatchers.IO) { latch.await(10, TimeUnit.MINUTES) }
+            withContext(Dispatchers.IO) { latch.await(10, TimeUnit.MINUTES) }
         return failure.get() == null && output.exists() && output.length() > 0L
     }
 
@@ -211,7 +211,7 @@ object ClipProcessor {
                 }
         }
 
-        withContext(Dispatchers.IO) { latch.await(5, TimeUnit.MINUTES) }
+            withContext(Dispatchers.IO) { latch.await(5, TimeUnit.MINUTES) }
         return if (failure.get() == null && output.exists() && output.length() > 0L) {
             output
         } else {
@@ -270,7 +270,7 @@ object ClipProcessor {
                 }
         }
 
-        withContext(Dispatchers.IO) { latch.await(5, TimeUnit.MINUTES) }
+            withContext(Dispatchers.IO) { latch.await(5, TimeUnit.MINUTES) }
 
         return if (failure.get() == null && output.exists() && output.length() > 0L) {
             output

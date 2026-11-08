@@ -779,13 +779,21 @@ private fun ClipThumb(file: File) {
 
     LaunchedEffect(file.path) {
         bitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                val retriever = MediaMetadataRetriever()
+            val retriever = MediaMetadataRetriever()
+            try {
                 retriever.setDataSource(file.path)
-                val frame = retriever.getFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                retriever.release()
-                frame?.asImageBitmap()
-            }.getOrNull()
+                // Decode small: a full 1080p frame is ~8MB per row and they all stay resident.
+                retriever.getScaledFrameAtTime(
+                    1_000_000,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    264,
+                    168,
+                )?.asImageBitmap()
+            } catch (t: Throwable) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
         }
     }
 

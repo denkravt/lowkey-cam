@@ -35,6 +35,8 @@ import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -68,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -79,6 +82,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -216,7 +220,6 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     var bound by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf<Recording?>(null) }
     var paused by remember { mutableStateOf(false) }
-    var elapsedMs by remember { mutableLongStateOf(0L) }
     var startAt by remember { mutableLongStateOf(0L) }
     var pausedAt by remember { mutableLongStateOf(0L) }
     var pausedTotal by remember { mutableLongStateOf(0L) }
@@ -238,14 +241,16 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
         startAt = SystemClock.elapsedRealtime()
         pausedAt = 0L
         pausedTotal = 0L
-        elapsedMs = 0L
         val started = pending.start(ContextCompat.getMainExecutor(context)) { event ->
             when (event) {
                 is VideoRecordEvent.Finalize -> {
                     val durMs = event.recordingStats.recordedDurationNanos / 1_000_000L
                     recording = null
                     paused = false
-                    if (!event.hasError() && file.exists() && file.length() > 0L) {
+                    // A take cut short by leaving the app finalizes with SOURCE_INACTIVE - keep it.
+                    val salvageable = event.error == VideoRecordEvent.Finalize.ERROR_NONE ||
+                        event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE
+                    if (salvageable && file.exists() && file.length() > 0L && durMs > 300L) {
                         if (lowAtStart) {
                             // Keep the preview upright while shooting, then trim to the framed 16:9 band.
                             note = "Cropping to 16:9\u2026"
@@ -375,9 +380,25 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
     }
 
     LaunchedEffect(lowKey, bound) {
-        // Both stay portrait: the low-key crop happens after the take, so the preview is upright.
-        videoCapture?.targetRotation = Surface.ROTATION_0
-        previewUseCase?.targetRotation = Surface.ROTATION_0
+        // Low-key always captures portrait (cropped to 16:9 afterwards); standard mode follows the device.
+        val rotation = if (lowKey) Surface.ROTATION_0 else currentRotation(context)
+        videoCapture?.targetRotation = rotation
+        previewUseCase?.targetRotation = rotation
+    }
+
+    // Leaving the app mid-take must not leave an encoder chewing through battery in the background.
+    val liveRecording = rememberUpdatedState(recording)
+    val lifecycle = owner.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                // Before the camera goes inactive, so the take finalizes cleanly instead of erroring out.
+                runCatching { liveRecording.value?.stop() }
+                paused = false
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(torch, bound) {
@@ -386,18 +407,6 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
         }
     }
 
-    LaunchedEffect(recording) {
-        while (recording != null) {
-            val now = SystemClock.elapsedRealtime()
-            elapsedMs = if (paused && pausedAt > 0L) {
-                (pausedAt - startAt - pausedTotal).coerceAtLeast(0L)
-            } else {
-                (now - startAt - pausedTotal).coerceAtLeast(0L)
-            }
-            delay(100)
-        }
-        if (startAt > 0L) elapsedMs = SystemClock.elapsedRealtime() - startAt - pausedTotal
-    }
 
     LaunchedEffect(note) {
         if (note != null) {
@@ -442,12 +451,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = formatDuration(elapsedMs),
-                    color = if (isRecording) Color(0xFFFF6B5E) else Color(0x99FFFFFF),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+                LiveClock(recording, startAt, paused, pausedAt, pausedTotal)
             }
 
             }
@@ -497,11 +501,11 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                                         .background(Color(0xFFFF6B5E), CircleShape)
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "REC " + formatDuration(elapsedMs),
-                                    color = Color(0x55FFFFFF),
+                                LiveClock(
+                                    recording, startAt, paused, pausedAt, pausedTotal,
+                                    prefix = "REC ",
                                     fontSize = 12.sp,
-                                    letterSpacing = 2.sp,
+                                    activeColor = Color(0x55FFFFFF),
                                 )
                             }
                         }
@@ -752,12 +756,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        Text(
-                            text = formatDuration(elapsedMs),
-                            color = if (isRecording) Color(0xFFFF6B5E) else Color(0x99FFFFFF),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        LiveClock(recording, startAt, paused, pausedAt, pausedTotal)
                     }
 
                     Row(
@@ -867,6 +866,39 @@ private fun CircleButton(label: String, onClick: () -> Unit) {
     ) {
         Text(text = label, color = Color.White, fontSize = 17.sp)
     }
+}
+
+@Composable
+private fun LiveClock(
+    recording: Recording?,
+    startAt: Long,
+    paused: Boolean,
+    pausedAt: Long,
+    pausedTotal: Long,
+    prefix: String = "",
+    fontSize: TextUnit = 14.sp,
+    activeColor: Color = Color(0xFFFF6B5E),
+    idleColor: Color = Color(0x99FFFFFF),
+) {
+    // Owns its own tick so a running take doesn't re-execute the whole camera layout 10x a second.
+    var ms by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(recording, paused) {
+        while (recording != null) {
+            ms = if (paused && pausedAt > 0L) {
+                (pausedAt - startAt - pausedTotal).coerceAtLeast(0L)
+            } else {
+                (SystemClock.elapsedRealtime() - startAt - pausedTotal).coerceAtLeast(0L)
+            }
+            delay(100)
+        }
+        if (startAt > 0L) ms = SystemClock.elapsedRealtime() - startAt - pausedTotal
+    }
+    Text(
+        text = prefix + formatDuration(ms),
+        color = if (recording != null) activeColor else idleColor,
+        fontSize = fontSize,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 @Composable

@@ -112,7 +112,10 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
 
     val project = remember(tick) { Store.ensureProject(context) }
     val projects = remember(tick) { Store.projects(context) }
-    val clips = remember(tick, project.id) { Store.clips(context, project.id) }
+    // One JSON read per refresh instead of one per project row inside the composition.
+    val allClips = remember(tick) { Store.clips(context) }
+    val clips = remember(allClips) { allClips.filter { it.projectId == project.id } }
+    val clipCounts = remember(allClips) { allClips.groupingBy { it.projectId }.eachCount() }
     var showNew by remember { mutableStateOf(false) }
 
     Column(
@@ -209,7 +212,7 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
         projects.forEach { p ->
             ProjectRow(
                 project = p,
-                clipCount = if (p.id == project.id) clips.size else Store.clips(context, p.id).size,
+                clipCount = clipCounts[p.id] ?: 0,
                 selected = p.id == project.id,
             ) {
                 Store.setCurrent(context, p.id)

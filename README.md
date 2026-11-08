@@ -85,6 +85,7 @@ vlog *and* deletes the file from storage, and refreshes the widget.
 - **Recap** — one tap trims every clip down to 2 / 3 / 5 seconds
 - **CLIPS** — shown in playback order; **long-press a clip to drag it** anywhere in the list, tap to trim, ⋮ for Trim / Move / Share / Delete
 - **Tap the title** to rename the project
+- **Delete** — ⋮ in the project header: delete every clip in the project (project stays) or the whole project. ⋮ on a home-screen row deletes that project. Files, the music track and orphaned takes go with it.
 
 ## Music and clip order
 

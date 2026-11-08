@@ -30,6 +30,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -44,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -67,6 +70,7 @@ import com.justan.lowkeycam.ui.LowKeyTheme
 import com.justan.lowkeycam.ui.Moss
 import com.justan.lowkeycam.ui.Muted
 import com.justan.lowkeycam.ui.ProjectScreen
+import com.justan.lowkeycam.ui.RecordRed
 import com.justan.lowkeycam.ui.Sand
 import com.justan.lowkeycam.widget.QuickRecordWidgetReceiver
 import com.justan.lowkeycam.widget.RecordWidgetReceiver
@@ -117,6 +121,7 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
     val clips = remember(allClips) { allClips.filter { it.projectId == project.id } }
     val clipCounts = remember(allClips) { allClips.groupingBy { it.projectId }.eachCount() }
     var showNew by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<Project?>(null) }
 
     Column(
         modifier = Modifier
@@ -159,7 +164,8 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
                 )
                 Text(
                     text = if (clips.isEmpty()) "No shots yet — first one's on you." else
-                        "${clips.size} clips · ${formatDuration(clips.sumOf { it.durationMs })}",
+                        (if (clips.size == 1) "1 clip" else "${clips.size} clips") +
+                            " \u00b7 " + formatDuration(clips.sumOf { it.durationMs }),
                     style = MaterialTheme.typography.bodySmall,
                     color = Muted,
                 )
@@ -214,12 +220,14 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
                 project = p,
                 clipCount = clipCounts[p.id] ?: 0,
                 selected = p.id == project.id,
-            ) {
-                Store.setCurrent(context, p.id)
-                WidgetUpdater.update(context)
-                tick++
-                onOpenProject(p)
-            }
+                onClick = {
+                    Store.setCurrent(context, p.id)
+                    WidgetUpdater.update(context)
+                    tick++
+                    onOpenProject(p)
+                },
+                onDelete = { pendingDelete = p },
+            )
         }
 
         Spacer(Modifier.height(20.dp))
@@ -243,6 +251,44 @@ private fun HomeScreen(onOpenProject: (Project) -> Unit = {}) {
         Spacer(Modifier.height(20.dp))
     }
 
+    pendingDelete?.let { doomed ->
+        val count = clipCounts[doomed.id] ?: 0
+        AlertDialog(
+            containerColor = Cream,
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete project?", style = MaterialTheme.typography.headlineMedium) },
+            text = {
+                Text(
+                    text = if (count == 0) {
+                        "\"" + doomed.name + "\" is removed from this phone."
+                    } else {
+                        "\"" + doomed.name + "\" and its " + count +
+                            (if (count == 1) " clip" else " clips") +
+                            " are deleted from this phone. This can't be undone."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        Store.deleteProject(context, doomed.id)
+                        Store.ensureProject(context)
+                        WidgetUpdater.update(context)
+                        pendingDelete = null
+                        tick++
+                    }
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold, color = RecordRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancel", color = Ink) }
+            },
+        )
+    }
+
     if (showNew) {
         NewProjectDialog(
             onDismiss = { showNew = false },
@@ -262,7 +308,9 @@ private fun ProjectRow(
     clipCount: Int,
     selected: Boolean,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = if (selected) Card else Color.Transparent,
@@ -287,6 +335,26 @@ private fun ProjectRow(
             if (selected) {
                 Box(Modifier.size(10.dp).background(Forest, CircleShape)) {}
                 Spacer(Modifier.width(8.dp))
+            }
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(100.dp))
+                        .clickable { menuOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("\u22EE", fontSize = 16.sp, color = Muted)
+                }
+                DropdownMenu(containerColor = Card, expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Delete project", color = RecordRed) },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
             }
             Text("\u203A", fontSize = 20.sp, color = Muted)
         }
@@ -321,6 +389,7 @@ private fun Button(label: String, filled: Boolean, modifier: Modifier = Modifier
 private fun NewProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
+        containerColor = Cream,
         onDismissRequest = onDismiss,
         title = { Text("New project", style = MaterialTheme.typography.headlineMedium) },
         text = {

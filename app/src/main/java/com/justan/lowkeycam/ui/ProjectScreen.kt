@@ -121,6 +121,9 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     var renaming by remember { mutableStateOf<String?>(null) }
     var recapRunning by remember { mutableStateOf(false) }
     var recapProgress by remember { mutableStateOf(0 to 0) }
+    var menuOpen by remember { mutableStateOf(false) }
+    var pendingClearAll by remember { mutableStateOf(false) }
+    var pendingWipeProject by remember { mutableStateOf(false) }
     var dragFrom by remember { mutableStateOf(-1) }
     var dragOffset by remember { mutableStateOf(0f) }
     var rowHeightPx by remember { mutableStateOf(0f) }
@@ -194,13 +197,45 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 color = Ink,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.clickable { renaming = displayName },
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { renaming = displayName },
             )
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(100.dp))
+                        .background(Sand)
+                        .clickable { menuOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("\u22EE", fontSize = 16.sp, color = Ink)
+                }
+                DropdownMenu(containerColor = Card, expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Delete all clips", color = if (clips.isEmpty()) Muted else RecordRed) },
+                        enabled = clips.isNotEmpty(),
+                        onClick = {
+                            menuOpen = false
+                            pendingClearAll = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete project", color = RecordRed) },
+                        onClick = {
+                            menuOpen = false
+                            pendingWipeProject = true
+                        },
+                    )
+                }
+            }
         }
 
         Text(
             text = if (clips.isEmpty()) "No shots yet" else
-                "${clips.size} clips · ${formatDuration(total)}",
+                (if (clips.size == 1) "1 clip" else "${clips.size} clips") +
+                    " \u00b7 " + formatDuration(total),
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
             modifier = Modifier.padding(top = 6.dp, start = 54.dp),
@@ -255,7 +290,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     maxLines = 1,
                 )
                 Text(
-                    text = clips.size.toString() + " clips in order",
+                    text = clips.size.toString() + (if (clips.size == 1) " clip in order" else " clips in order"),
                     style = MaterialTheme.typography.bodySmall,
                     color = Muted,
                     maxLines = 1,
@@ -331,14 +366,14 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Cream,
+                    color = if (clips.isEmpty()) Muted else Cream,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = clips.size.toString() + " clips \u00b7 one video",
+                    text = clips.size.toString() + (if (clips.size == 1) " clip \u00b7 one video" else " clips \u00b7 one video"),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Cream.copy(alpha = 0.75f),
+                    color = if (clips.isEmpty()) Muted.copy(alpha = 0.7f) else Cream.copy(alpha = 0.75f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -578,6 +613,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
     renaming?.let { current ->
         var text by remember(current) { mutableStateOf(current) }
         AlertDialog(
+            containerColor = Cream,
             onDismissRequest = { renaming = null },
             title = { Text("Rename project", style = MaterialTheme.typography.headlineMedium) },
             text = {
@@ -607,6 +643,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
 
     pendingDelete?.let { clip ->
         AlertDialog(
+            containerColor = Cream,
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete this clip?", style = MaterialTheme.typography.headlineMedium) },
             text = {
@@ -635,6 +672,80 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("Cancel", color = Ink) }
+            },
+        )
+    }
+
+    if (pendingClearAll) {
+        AlertDialog(
+            containerColor = Cream,
+            onDismissRequest = { pendingClearAll = false },
+            title = { Text("Delete all clips?", style = MaterialTheme.typography.headlineMedium) },
+            text = {
+                Text(
+                    text = if (clips.size == 1) {
+                        "The only clip in this project is deleted from this phone. The project itself stays."
+                    } else {
+                        "All " + clips.size + " clips in this project are deleted from this phone. " +
+                            "The project itself stays."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        Store.deleteAllClips(context, project.id)
+                        WidgetUpdater.update(context)
+                        exportedFile = null
+                        exportNote = null
+                        pendingClearAll = false
+                        tick++
+                    }
+                ) {
+                    Text("Delete all", fontWeight = FontWeight.Bold, color = RecordRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClearAll = false }) { Text("Cancel", color = Ink) }
+            },
+        )
+    }
+
+    if (pendingWipeProject) {
+        AlertDialog(
+            containerColor = Cream,
+            onDismissRequest = { pendingWipeProject = false },
+            title = { Text("Delete this project?", style = MaterialTheme.typography.headlineMedium) },
+            text = {
+                Text(
+                    text = if (clips.size == 1) {
+                        "\"" + displayName + "\", its 1 clip and the music track are deleted from this phone. " +
+                            "This can't be undone."
+                    } else {
+                        "\"" + displayName + "\", its " + clips.size + " clips and the music track are " +
+                            "deleted from this phone. This can't be undone."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        Store.deleteProject(context, project.id)
+                        Store.ensureProject(context)
+                        WidgetUpdater.update(context)
+                        pendingWipeProject = false
+                        onBack()
+                    }
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold, color = RecordRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingWipeProject = false }) { Text("Cancel", color = Ink) }
             },
         )
     }

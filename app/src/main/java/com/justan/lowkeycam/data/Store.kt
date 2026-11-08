@@ -151,6 +151,55 @@ object Store {
         saveClips(c, clips(c).filterNot { it.id == clipId })
     }
 
+    /** Deletes every clip in a project, records and files, but keeps the project. Returns the count. */
+    fun deleteAllClips(c: Context, projectId: String): Int {
+        val doomed = clips(c, projectId)
+        if (doomed.isEmpty()) return 0
+        saveClips(c, clips(c).filterNot { it.projectId == projectId })
+        val dir = clipsDir(c)
+        doomed.forEach { runCatching { File(dir, it.fileName).delete() } }
+        pruneOrphans(c)
+        return doomed.size
+    }
+
+    /**
+     * Drops clip files that no record points at - leftovers from interrupted takes or older builds.
+     * Files newer than a few minutes are left alone so an in-flight take is never deleted.
+     */
+    fun pruneOrphans(c: Context): Int {
+        val referenced = clips(c).map { it.fileName }.toSet()
+        val cutoff = System.currentTimeMillis() - 5 * 60_000L
+        var pruned = 0
+        clipsDir(c).listFiles()?.forEach { file ->
+            if (file.name !in referenced && file.lastModified() < cutoff) {
+                if (runCatching { file.delete() }.getOrDefault(false)) pruned++
+            }
+        }
+        return pruned
+    }
+
+    /** Deletes a project with all of its clips, its music and its settings. Returns the clip count. */
+    fun deleteProject(c: Context, projectId: String): Int {
+        val doomed = clips(c, projectId)
+        saveClips(c, clips(c).filterNot { it.projectId == projectId })
+        val dir = clipsDir(c)
+        doomed.forEach { runCatching { File(dir, it.fileName).delete() } }
+        musicFor(c, projectId)?.let { name -> runCatching { File(musicDir(c), name).delete() } }
+        prefs(c).edit()
+            .remove("music_" + projectId)
+            .remove("music_vol_" + projectId)
+            .apply()
+
+        val remaining = projects(c).filterNot { it.id == projectId }
+        saveProjects(c, remaining)
+        if (prefs(c).getString(K_CURRENT, null) == projectId) {
+            if (remaining.isNotEmpty()) setCurrent(c, remaining.first().id)
+            else prefs(c).edit().remove(K_CURRENT).apply()
+        }
+        pruneOrphans(c)
+        return doomed.size
+    }
+
     private fun saveClips(c: Context, all: List<Clip>) {
         val arr = JSONArray()
         all.forEach {

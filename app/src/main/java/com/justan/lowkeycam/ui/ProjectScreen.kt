@@ -62,6 +62,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +76,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.justan.lowkeycam.camera.CameraActivity
 import com.justan.lowkeycam.data.Clip
+import com.justan.lowkeycam.data.ClipEvents
 import com.justan.lowkeycam.data.ClipProcessor
 import com.justan.lowkeycam.data.Project
 import com.justan.lowkeycam.data.MediaStorePublisher
@@ -101,6 +104,11 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+
+    // A take finished processing while this screen was already visible - re-read the store.
+    LaunchedEffect(Unit) {
+        ClipEvents.clipsChanged.collect { tick++ }
     }
 
     val clips = remember(tick, project.id) { Store.clips(context, project.id) }
@@ -199,6 +207,7 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
+                    .semantics { contentDescription = "project-title" }
                     .clickable { renaming = displayName },
             )
             Box {
@@ -238,7 +247,9 @@ fun ProjectScreen(project: Project, onBack: () -> Unit) {
                     " \u00b7 " + formatDuration(total),
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
-            modifier = Modifier.padding(top = 6.dp, start = 54.dp),
+            modifier = Modifier
+                .padding(top = 6.dp, start = 54.dp)
+                .semantics { contentDescription = "clip-count:" + clips.size },
         )
 
         Surface(
@@ -788,6 +799,7 @@ private fun ClipRow(
                 alpha = if (dragging) 0.96f else 1f
             }
             .onSizeChanged { if (index == 0) onHeight(it.height.toFloat()) }
+            .semantics { contentDescription = "clip-row" }
             .drawWithContent {
                 drawContent()
                 if (dropMarker) {
@@ -830,9 +842,9 @@ private fun ClipRow(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                SmallGlyph("▶") { onPlay() }
+                SmallGlyph("▶", label = "clip-play") { onPlay() }
                 Box {
-                    SmallGlyph("\u22EE") { menuOpen = true }
+                    SmallGlyph("\u22EE", label = "clip-menu") { menuOpen = true }
                     DropdownMenu(
                         expanded = menuOpen,
                         onDismissRequest = { menuOpen = false },
@@ -871,12 +883,18 @@ private fun ClipRow(
 }
 
 @Composable
-private fun SmallGlyph(glyph: String, destructive: Boolean = false, onClick: () -> Unit) {
+private fun SmallGlyph(
+    glyph: String,
+    destructive: Boolean = false,
+    label: String? = null,
+    onClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .size(34.dp)
             .clip(RoundedCornerShape(100.dp))
             .background(Sand)
+            .semantics { if (label != null) contentDescription = label }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

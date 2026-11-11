@@ -81,6 +81,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -90,15 +92,20 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.justan.lowkeycam.data.Clip
 import com.justan.lowkeycam.data.ClipProcessor
+import com.justan.lowkeycam.data.ClipEvents
 import com.justan.lowkeycam.data.Store
 import com.justan.lowkeycam.data.formatDuration
 import com.justan.lowkeycam.ui.LowKeyTheme
 import com.justan.lowkeycam.widget.WidgetUpdater
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -145,6 +152,12 @@ private fun hasPermission(context: Context, permission: String): Boolean =
     ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
 /** Display rotation of the phone itself — the preview view may not be attached yet at bind time. */
+/**
+ * Post-processing has to outlive the camera screen: closing it right after the shutter used to cancel
+ * the low-key crop and silently drop the take.
+ */
+private val clipJobs = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
 private fun currentRotation(context: Context): Int {
     val manager = context.getSystemService(DisplayManager::class.java)
     val display = manager?.getDisplay(Display.DEFAULT_DISPLAY) ?: return Surface.ROTATION_0
@@ -254,27 +267,33 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                         if (lowAtStart) {
                             // Keep the preview upright while shooting, then trim to the framed 16:9 band.
                             note = "Cropping to 16:9\u2026"
-                            scope.launch {
-                                val cropped = ClipProcessor.cropTo16x9(context, file)
+                            clipJobs.launch {
+                                val cropped = withContext(Dispatchers.Main) {
+                                    runCatching { ClipProcessor.cropTo16x9(context, file) }.getOrNull()
+                                }
                                 val savedName = if (cropped != null) {
                                     file.delete()
                                     cropped.name
                                 } else {
                                     name
                                 }
-                                Store.addClip(
-                                    context,
-                                    buildClip(project.id, savedName, durMs, lowAtStart),
-                                )
-                                WidgetUpdater.update(context)
-                                note = (if (cropped != null) "Saved · landscape · " else "Cropping failed · kept portrait · ") +
-                                    formatDuration(durMs)
+                                withContext(Dispatchers.Main) {
+                                    Store.addClip(
+                                        context,
+                                        buildClip(project.id, savedName, durMs, lowAtStart),
+                                    )
+                                    ClipEvents.emit()
+                                    WidgetUpdater.update(context)
+                                    note = (if (cropped != null) "Saved · landscape · " else "Cropping failed · kept portrait · ") +
+                                        formatDuration(durMs)
+                                }
                             }
                         } else {
                             Store.addClip(
                                 context,
                                 buildClip(project.id, name, durMs, lowAtStart),
                             )
+                            ClipEvents.emit()
                             WidgetUpdater.update(context)
                             note = "Saved · portrait · " + formatDuration(durMs)
                         }
@@ -635,6 +654,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                             .size(84.dp)
                             .clip(CircleShape)
                             .border(4.dp, Color.White, CircleShape)
+                            .semantics { contentDescription = if (isRecording) "stop-recording" else "start-recording" }
                             .clickable {
                                 if (isRecording) {
                                     runCatching { recording?.stop() }
@@ -817,6 +837,7 @@ private fun CameraScreen(lowKeyInitial: Boolean, autoStart: Boolean, onClose: ()
                             .size(78.dp)
                             .clip(CircleShape)
                             .border(4.dp, Color.White, CircleShape)
+                            .semantics { contentDescription = if (isRecording) "stop-recording" else "start-recording" }
                             .clickable {
                                 if (isRecording) {
                                     runCatching { recording?.stop() }

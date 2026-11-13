@@ -191,7 +191,10 @@ fun ClipEditorScreen(clip: Clip, onClose: () -> Unit) {
                     .weight(1f)
                     .clickable {
                         exoPlayer.seekTo(startMs.toLong())
-                        if (exoPlayer.isPlaying) {
+                        // Follow the UI state, not exoPlayer.isPlaying: while the player is still
+                        // buffering isPlaying is false, so tapping Pause would restart playback and
+                        // the button would look stuck.
+                        if (playing) {
                             exoPlayer.pause()
                             playing = false
                         } else {
